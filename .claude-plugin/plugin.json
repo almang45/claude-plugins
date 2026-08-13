@@ -1,0 +1,9 @@
+{
+  "name": "tabcolor",
+  "version": "0.1.0",
+  "description": "Colors the tmux window / iTerm2 tab by Claude Code session state: blue working, orange waiting on you, green your turn.",
+  "author": {
+    "name": "almang45"
+  },
+  "hooks": "./hooks/hooks.json"
+}
