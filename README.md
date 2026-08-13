@@ -3,12 +3,20 @@
 Claude Code plugin. Paints the iTerm2 tab with the session's current state, so a
 wall of tabs tells you which one wants you without reading any of them.
 
+Each tab is an andon light. The palette is the LED palette from
+[andon-light](../andon-light) (`firmware/code.py`, `COL`), so a tab and its lamp
+on the desk agree on what a color means.
+
 | Color  | State | Fired by |
 |--------|-------|----------|
-| 🔵 blue `#4a9eff` | Claude is working | `UserPromptSubmit`, `PostToolUse` |
-| 🟠 orange `#ff9f0a` | permission prompt / waiting on you | `Notification` |
-| 🟢 green `#30d158` | your turn, response finished | `SessionStart`, `Stop` |
+| 🟢 green `#00ff00` | running | `UserPromptSubmit`, `PostToolUse` |
+| 🟡 yellow `#ff9600` | idle / complete, your turn | `SessionStart`, `Stop` |
+| 🔴 red `#ff0000` | stopped, needs you | `Notification` |
 | — | color cleared | `SessionEnd` |
+
+Note this inverts green and yellow relative to `andon-light/hooks/claude-signal.sh`,
+which lights yellow while working and green when done. Swap the two `hex=` lines
+in `hooks/tabcolor.sh` to match that instead.
 
 ## Install
 

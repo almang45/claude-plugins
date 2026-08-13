@@ -3,11 +3,13 @@
 # Invoked by hooks with exactly one argument: busy | attention | idle | reset.
 set -uo pipefail
 
+# An andon light: the tab is a lamp on the same machine the andon-light project
+# lights up, so it uses that project's LED values verbatim (firmware/code.py COL).
 # ponytail: fixed palette, edit here. A config layer buys nothing for 3 colors.
 case "${1:-}" in
-  busy)      hex=4a9eff ;;  # Claude is working
-  attention) hex=ff9f0a ;;  # permission prompt / waiting on you
-  idle)      hex=30d158 ;;  # your turn
+  busy)      hex=00ff00 ;;  # green: running
+  idle)      hex=ff9600 ;;  # yellow: idle / complete, your turn
+  attention) hex=ff0000 ;;  # red: stopped, needs you
   reset)     hex=       ;;
   *) exit 0 ;;
 esac

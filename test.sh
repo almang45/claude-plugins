@@ -8,10 +8,10 @@ cd "$(dirname "$0")"
 out=$(mktemp "${TMPDIR:-/tmp}/tabcolor-test.XXXXXX")
 trap 'rm -f "$out"' EXIT
 
-# 4a9eff -> 74 158 255, ff9f0a -> 255 159 10, 30d158 -> 48 209 88.
-BUSY=$'\033]6;1;bg;red;brightness;74\a\033]6;1;bg;green;brightness;158\a\033]6;1;bg;blue;brightness;255\a'
-ATTN=$'\033]6;1;bg;red;brightness;255\a\033]6;1;bg;green;brightness;159\a\033]6;1;bg;blue;brightness;10\a'
-IDLE=$'\033]6;1;bg;red;brightness;48\a\033]6;1;bg;green;brightness;209\a\033]6;1;bg;blue;brightness;88\a'
+# The andon-light lamp palette: green (0,255,0), yellow (255,150,0), red (255,0,0).
+BUSY=$'\033]6;1;bg;red;brightness;0\a\033]6;1;bg;green;brightness;255\a\033]6;1;bg;blue;brightness;0\a'
+ATTN=$'\033]6;1;bg;red;brightness;255\a\033]6;1;bg;green;brightness;0\a\033]6;1;bg;blue;brightness;0\a'
+IDLE=$'\033]6;1;bg;red;brightness;255\a\033]6;1;bg;green;brightness;150\a\033]6;1;bg;blue;brightness;0\a'
 DEFAULT=$'\033]6;1;bg;*;default\a'
 
 # Outside tmux: the sequence goes out verbatim.
