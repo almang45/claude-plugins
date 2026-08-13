@@ -65,4 +65,14 @@ for state in busy reset; do
   [[ -z $err ]] || { echo "FAIL headless $state wrote to stderr: $err"; exit 1; }
 done
 
+# hooks/hooks.json is loaded automatically. Naming it in the manifest too makes
+# the plugin fail to load with "Duplicate hooks file detected".
+python3 - <<'PY' || exit 1
+import json, sys
+m = json.load(open(".claude-plugin/plugin.json"))
+if "hooks" in m:
+    sys.exit("FAIL plugin.json must not declare the auto-loaded hooks/hooks.json")
+json.load(open("hooks/hooks.json"))
+PY
+
 echo "ok"
