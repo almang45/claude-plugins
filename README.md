@@ -30,30 +30,36 @@ gets there.
   control-mode integration renders each tmux window as its own native tab and
   applies a pane's control sequences to that pane's tab, so this lands exactly
   where it should.
-- **Background sessions**: nothing, by design. See below.
+- **Sessions hosted as background jobs**: matched to a tab by title. See below.
 
 `TABCOLOR_TTY` redirects the bytes to a given tty or file; the tests use it so
 they cannot repaint the pane they run in.
 
-## Background sessions paint nothing
+## Finding the tab for a background-hosted session
 
-Interactive sessions inherit `$TMUX_PANE` and colour their own tab with no
-guesswork. Background jobs do not inherit it, and there is no dependable way to
-recover which tab they belong to. Two approaches were built and both shipped
-the same bug — colouring an unrelated tab:
+A session Claude Code runs as a background job never inherits `$TMUX_PANE`, and
+its hooks have no controlling terminal either. What identifies its tab is the
+**title**: Claude Code sets the terminal title to the session name, and tmux
+exposes that as `pane_title`. The hook reads the name from
+`$CLAUDE_JOB_DIR/state.json` and finds the pane whose title contains it.
+Substring, because the title carries a leading status glyph (`◐`, `✳`).
 
-- **Process lineage.** Claude Code runs background jobs under a host process
-  whose ancestry leads to whichever session parented the host pool, not the
-  session you launched the job from. In testing, a job started from one tab
-  resolved to a completely different project's tab.
+Three other approaches were built or considered first, and every one of them
+resolved to the wrong tab:
+
+- **Process lineage.** Background jobs run under a host whose ancestry leads to
+  whichever session parented the host pool, not the one displaying the session.
+  In testing, this session resolved to an unrelated project's tab.
 - **Working directory.** Two sessions open on the same directory are
   indistinguishable, and a job's `cwd` is often a subdirectory of both.
+- **Ancestor environments.** macOS `ps -E` reports a process's environment as of
+  `exec`, and misses `TMUX` entirely on a tmux pane's own login shell.
 
-Also ruled out: `ps -E` cannot read ancestor environments reliably on macOS —
-it reports a process's environment as of `exec`, and misses `TMUX` entirely on
-a tmux pane's own login shell.
+The ancestor-TTY walk is what
+[claude-code-iterm2-tab-status](https://github.com/JasperSui/claude-code-iterm2-tab-status)
+uses, and its README documents the same "wrong tab" symptom.
 
-If you want a specific background job to signal, point it at a tab explicitly:
+To override the target entirely, point a session at a tty yourself:
 
 ```bash
 TABCOLOR_TTY=/dev/ttys017 claude ...   # tmux display-message -p '#{pane_tty}'

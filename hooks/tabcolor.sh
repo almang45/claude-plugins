@@ -22,13 +22,21 @@ osc() {
   fi
 }
 
-# Interactive sessions inherit TMUX_PANE and land on their own tab. Background
-# sessions do not, and there is no reliable way to recover it: Claude Code runs
-# them under a host whose process lineage belongs to whichever session parented
-# the host pool, not the one that launched the job, and several sessions can
-# share a working directory. Both heuristics were tried and both painted an
-# unrelated tab. So a background job paints nothing unless you point it
-# somewhere explicitly with TABCOLOR_TTY.
+# Sessions Claude Code hosts as background jobs never inherit TMUX_PANE, and the
+# obvious ways to recover it all point at the wrong tab: process lineage leads to
+# whichever session parented the host pool, and several sessions can share a
+# working directory. What does identify the tab is its title — Claude Code sets
+# it to the session name, and tmux exposes that as pane_title.
+if [[ -z ${TMUX_PANE:-} && -r "${CLAUDE_JOB_DIR:-}/state.json" ]]; then
+  # "nameSource" also lives in this file; the space after the colon excludes it.
+  name=$(sed -n 's/.*"name": "\([^"]*\)".*/\1/p' "$CLAUDE_JOB_DIR/state.json" | head -1)
+  if [[ -n $name ]]; then
+    # index() is a literal substring match, so a name with regex metacharacters
+    # is safe. The title carries a leading status glyph, hence substring.
+    TMUX_PANE=$(tmux list-panes -a -F '#{pane_id}	#{pane_title}' 2>/dev/null |
+      awk -F'\t' -v n="$name" 'index($2, n) { print $1; exit }')
+  fi
+fi
 #
 # TABCOLOR_TTY overrides where the bytes go. The tests assert on a plain file;
 # it also makes this debuggable without guessing which pty is involved.

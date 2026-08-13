@@ -17,7 +17,7 @@ DEFAULT=$'\033]6;1;bg;*;default\a'
 # Outside tmux: the sequence goes out verbatim.
 plain() {
   : >"$out"
-  env -u TMUX_PANE TABCOLOR_TTY="$out" ./hooks/tabcolor.sh "$1"
+  env -u TMUX_PANE -u CLAUDE_JOB_DIR TABCOLOR_TTY="$out" ./hooks/tabcolor.sh "$1"
 }
 check() {
   [[ $(cat "$out") == "$2" ]] || { echo "FAIL $1: bytes differ"; od -c "$out" | head -4; exit 1; }
@@ -42,12 +42,30 @@ check "inside tmux" "$BUSY"
 # world-writable even then, so a [[ -w /dev/tty ]] guard would let this through.
 # setsid(2) via python3, since macOS ships no setsid(1).
 for state in busy reset; do
-  err=$(env -u TMUX_PANE -u TABCOLOR_TTY python3 -c \
+  err=$(env -u TMUX_PANE -u TABCOLOR_TTY -u CLAUDE_JOB_DIR python3 -c \
     'import os,subprocess,sys; os.setsid(); sys.exit(subprocess.call(sys.argv[1:]))' \
     ./hooks/tabcolor.sh "$state" 2>&1 >/dev/null </dev/null) || {
       echo "FAIL headless $state exited non-zero"; exit 1; }
   [[ -z $err ]] || { echo "FAIL headless $state wrote to stderr: $err"; exit 1; }
 done
+
+# Title matching against a session name that matches no pane must be a silent
+# no-op. Which pane a real name resolves to is not covered here: resolution
+# reads the live tmux server, so the only honest assertion would be against the
+# developer's own tabs. Verify that by hand with tmux list-panes -F '#{pane_title}'.
+fixture=$(mktemp -d "${TMPDIR:-/tmp}/tabcolor-job.XXXXXX")
+trap 'rm -f "$out"; rm -rf "$fixture"' EXIT
+cat >"$fixture/state.json" <<'JSON'
+{
+  "nameSource": "auto",
+  "name": "a session name matching no pane whatsoever",
+  "state": "working"
+}
+JSON
+err=$(env -u TMUX_PANE -u TABCOLOR_TTY CLAUDE_JOB_DIR="$fixture" \
+  ./hooks/tabcolor.sh busy 2>&1 >/dev/null </dev/null) || {
+    echo "FAIL title match exited non-zero"; exit 1; }
+[[ -z $err ]] || { echo "FAIL title match wrote to stderr: $err"; exit 1; }
 
 # hooks/hooks.json is loaded automatically. Naming it in the manifest too makes
 # the plugin fail to load with "Duplicate hooks file detected".
