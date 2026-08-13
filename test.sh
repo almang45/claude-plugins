@@ -77,22 +77,32 @@ if "hooks" in m:
     sys.exit("FAIL plugin.json must not declare the auto-loaded hooks/hooks.json")
 h = json.load(open("hooks/hooks.json"))["hooks"]
 
-# Notification covers far more than permission prompts. Without a matcher the
-# tab goes red 60s into being idle, which is the exact opposite of the truth.
+# Notification covers far more than permission prompts, so every entry must say
+# which notification_types it wants, and no two entries may claim the same one.
+painted = {}
 for entry in h["Notification"]:
     matcher = entry.get("matcher", "")
     if not matcher:
-        sys.exit("FAIL Notification hook has no matcher: idle_prompt would paint the tab red")
+        sys.exit("FAIL Notification hook has no matcher: every type would paint the tab")
     # Claude Code only splits on | for this character class; anything else is
     # treated as a regex, where these names would substring-match each other.
     if not re.fullmatch(r"[A-Za-z0-9_|]+", matcher):
         sys.exit(f"FAIL Notification matcher is not exact-match alternation: {matcher}")
-    types = matcher.split("|")
-    for quiet in ("idle_prompt", "agent_completed", "auth_success"):
-        if quiet in types:
-            sys.exit(f"FAIL Notification matcher must not include {quiet}")
-    if "permission_prompt" not in types:
-        sys.exit("FAIL Notification matcher must include permission_prompt")
+    state = entry["hooks"][0]["command"].rsplit(" ", 1)[-1]
+    for t in matcher.split("|"):
+        if t in painted:
+            sys.exit(f"FAIL {t} is claimed by both {painted[t]} and {state}")
+        painted[t] = state
+
+# idle_prompt fires 60s after the prompt goes untouched. Red there is backwards,
+# and green is what lets a tab left red by an earlier version heal itself.
+if painted.get("idle_prompt") != "idle":
+    sys.exit(f"FAIL idle_prompt must paint idle, not {painted.get('idle_prompt')}")
+if painted.get("permission_prompt") != "attention":
+    sys.exit("FAIL permission_prompt must paint attention")
+for quiet in ("agent_completed", "auth_success", "push_notification"):
+    if quiet in painted:
+        sys.exit(f"FAIL {quiet} is not a state change, it must not paint {painted[quiet]}")
 PY
 
 echo "ok"

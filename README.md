@@ -37,11 +37,18 @@ blocked on you":
     elicitation_dialog         an MCP server is asking you something
     elicitation_url_dialog     ditto, via URL
 
-The other eight — `idle_prompt`, `agent_completed`, `auth_success`,
-`computer_use_enter`, `computer_use_exit`, `elicitation_complete`,
-`elicitation_response`, `push_notification` — are events, not blockages, and
-leave the color alone. It is an allowlist rather than a denylist so a
-notification type added by a future release stays quiet instead of crying wolf.
+`idle_prompt` gets its own entry painting **green**, not nothing. It means the
+opposite of red — the session is sitting there and the prompt is yours — and it
+is the only event an otherwise-silent tab ever fires, so it is also what lets a
+tab stuck red by an earlier version heal itself instead of glowing forever. It
+cannot stomp a genuine red: it only fires when the session is not loading and no
+dialog is open.
+
+The remaining seven — `agent_completed`, `auth_success`, `computer_use_enter`,
+`computer_use_exit`, `elicitation_complete`, `elicitation_response`,
+`push_notification` — are events, not state changes, and leave the color alone.
+It is an allowlist rather than a denylist so a notification type added by a
+future release stays quiet instead of crying wolf.
 
 Matcher semantics matter here: Claude Code only splits on `|` when the pattern
 is plain `[a-zA-Z0-9_|]`. Add a `.` or a `*` and the whole thing becomes a
