@@ -8,11 +8,10 @@ cd "$(dirname "$0")"
 out=$(mktemp "${TMPDIR:-/tmp}/tabcolor-test.XXXXXX")
 trap 'rm -f "$out"' EXIT
 
-# The andon-light lamp palette and mapping: working is yellow (255,150,0), done is
-# green (0,255,0), needs-you is red (255,0,0).
-BUSY=$'\033]6;1;bg;red;brightness;255\a\033]6;1;bg;green;brightness;150\a\033]6;1;bg;blue;brightness;0\a'
-ATTN=$'\033]6;1;bg;red;brightness;255\a\033]6;1;bg;green;brightness;0\a\033]6;1;bg;blue;brightness;0\a'
-IDLE=$'\033]6;1;bg;red;brightness;0\a\033]6;1;bg;green;brightness;255\a\033]6;1;bg;blue;brightness;0\a'
+# Muted andon hues: 4a3f1e -> 74 63 30, 5a2a26 -> 90 42 38, 3a4a30 -> 58 74 48.
+BUSY=$'\033]6;1;bg;red;brightness;74\a\033]6;1;bg;green;brightness;63\a\033]6;1;bg;blue;brightness;30\a'
+ATTN=$'\033]6;1;bg;red;brightness;90\a\033]6;1;bg;green;brightness;42\a\033]6;1;bg;blue;brightness;38\a'
+IDLE=$'\033]6;1;bg;red;brightness;58\a\033]6;1;bg;green;brightness;74\a\033]6;1;bg;blue;brightness;48\a'
 DEFAULT=$'\033]6;1;bg;*;default\a'
 
 # Outside tmux: the sequence goes out verbatim.

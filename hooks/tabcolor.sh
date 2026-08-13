@@ -3,14 +3,16 @@
 # Invoked by hooks with exactly one argument: busy | attention | idle | reset.
 set -uo pipefail
 
-# An andon light. Both the values and the state mapping come from the andon-light
-# project (firmware/code.py COL, hooks/claude-signal.sh), so a tab and the lamp on
-# the desk never disagree: yellow is work in progress, green is a finished run.
+# An andon light, with andon-light's state mapping (hooks/claude-signal.sh):
+# yellow is work in progress, green is a finished run, red wants you.
+# The hues are the lamp's (firmware/code.py COL) darkened to roughly a fifth
+# brightness: a tab sits behind its own title text for hours, where the LED
+# values are a wall of colour. Same signal, readable at a glance, not shouting.
 # ponytail: fixed palette, edit here. A config layer buys nothing for 3 colors.
 case "${1:-}" in
-  busy)      hex=ff9600 ;;  # yellow: working
-  idle)      hex=00ff00 ;;  # green: idle / complete, your turn
-  attention) hex=ff0000 ;;  # red: stopped, needs you
+  busy)      hex=4a3f1e ;;  # dark amber: working
+  idle)      hex=3a4a30 ;;  # dark moss: idle / complete, your turn
+  attention) hex=5a2a26 ;;  # dark oxblood: stopped, needs you
   reset)     hex=       ;;
   *) exit 0 ;;
 esac

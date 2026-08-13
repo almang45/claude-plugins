@@ -3,16 +3,26 @@
 Claude Code plugin. Paints the iTerm2 tab with the session's current state, so a
 wall of tabs tells you which one wants you without reading any of them.
 
-Each tab is an andon light, using the palette and the state mapping of
-[andon-light](../andon-light) — LED values from `firmware/code.py` (`COL`), states
-from `hooks/claude-signal.sh` — so a tab and the lamp on the desk always agree.
+Each tab is an andon light, with the state mapping of
+[andon-light](../andon-light) (`hooks/claude-signal.sh`), so a tab and the lamp
+on the desk always agree about what is happening.
 
 | Color  | State | Fired by |
 |--------|-------|----------|
-| 🟡 yellow `#ff9600` | working | `UserPromptSubmit`, `PostToolUse` |
-| 🟢 green `#00ff00` | idle / complete, your turn | `SessionStart`, `Stop` |
-| 🔴 red `#ff0000` | stopped, needs you | `Notification` (filtered, below) |
+| 🟫 dark amber `#4a3f1e` | working | `UserPromptSubmit`, `PostToolUse` |
+| 🟩 dark moss `#3a4a30` | idle / complete, your turn | `SessionStart`, `Stop`, `idle_prompt` |
+| 🟥 dark oxblood `#5a2a26` | stopped, needs you | `Notification` (filtered, below) |
 | — | color cleared | `SessionEnd` |
+
+The hues are the lamp's — `firmware/code.py` `COL`, i.e. `#ff9600` / `#00ff00` /
+`#ff0000` — darkened to roughly a fifth brightness. iTerm2 gives a tab exactly
+one knob, its background color; there is no border, outline or alpha. So the way
+to be subtle is to pick a color that sits *behind* the tab title rather than
+replacing it. At LED saturation, seven tabs are a wall of color; at this
+brightness each one still reads instantly in peripheral vision. Claude Code's own
+title glyphs (`✳` idle, `◑` working) carry the fine detail either way.
+
+To go back to the literal lamp values, put those three hexes in the `case` block.
 
 The one deliberate divergence is `PostToolUse` where andon-light wires
 `PreToolUse`: a permission prompt fires `Notification` *after* `PreToolUse`, so
