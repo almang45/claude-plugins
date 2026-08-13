@@ -8,10 +8,11 @@ cd "$(dirname "$0")"
 out=$(mktemp "${TMPDIR:-/tmp}/tabcolor-test.XXXXXX")
 trap 'rm -f "$out"' EXIT
 
-# The andon-light lamp palette: green (0,255,0), yellow (255,150,0), red (255,0,0).
-BUSY=$'\033]6;1;bg;red;brightness;0\a\033]6;1;bg;green;brightness;255\a\033]6;1;bg;blue;brightness;0\a'
+# The andon-light lamp palette and mapping: working is yellow (255,150,0), done is
+# green (0,255,0), needs-you is red (255,0,0).
+BUSY=$'\033]6;1;bg;red;brightness;255\a\033]6;1;bg;green;brightness;150\a\033]6;1;bg;blue;brightness;0\a'
 ATTN=$'\033]6;1;bg;red;brightness;255\a\033]6;1;bg;green;brightness;0\a\033]6;1;bg;blue;brightness;0\a'
-IDLE=$'\033]6;1;bg;red;brightness;255\a\033]6;1;bg;green;brightness;150\a\033]6;1;bg;blue;brightness;0\a'
+IDLE=$'\033]6;1;bg;red;brightness;0\a\033]6;1;bg;green;brightness;255\a\033]6;1;bg;blue;brightness;0\a'
 DEFAULT=$'\033]6;1;bg;*;default\a'
 
 # Outside tmux: the sequence goes out verbatim.

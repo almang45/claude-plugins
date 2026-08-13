@@ -3,20 +3,21 @@
 Claude Code plugin. Paints the iTerm2 tab with the session's current state, so a
 wall of tabs tells you which one wants you without reading any of them.
 
-Each tab is an andon light. The palette is the LED palette from
-[andon-light](../andon-light) (`firmware/code.py`, `COL`), so a tab and its lamp
-on the desk agree on what a color means.
+Each tab is an andon light, using the palette and the state mapping of
+[andon-light](../andon-light) — LED values from `firmware/code.py` (`COL`), states
+from `hooks/claude-signal.sh` — so a tab and the lamp on the desk always agree.
 
 | Color  | State | Fired by |
 |--------|-------|----------|
-| 🟢 green `#00ff00` | running | `UserPromptSubmit`, `PostToolUse` |
-| 🟡 yellow `#ff9600` | idle / complete, your turn | `SessionStart`, `Stop` |
+| 🟡 yellow `#ff9600` | working | `UserPromptSubmit`, `PostToolUse` |
+| 🟢 green `#00ff00` | idle / complete, your turn | `SessionStart`, `Stop` |
 | 🔴 red `#ff0000` | stopped, needs you | `Notification` |
 | — | color cleared | `SessionEnd` |
 
-Note this inverts green and yellow relative to `andon-light/hooks/claude-signal.sh`,
-which lights yellow while working and green when done. Swap the two `hex=` lines
-in `hooks/tabcolor.sh` to match that instead.
+The one deliberate divergence is `PostToolUse` where andon-light wires
+`PreToolUse`: a permission prompt fires `Notification` *after* `PreToolUse`, so
+`PreToolUse` would leave the tab red until the next prompt. `PostToolUse` clears
+it the moment the approved tool finishes.
 
 ## Install
 
