@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Asserts the exact bytes the hook emits, raw and DCS-wrapped. TABCOLOR_TTY
+# Asserts the exact bytes the hook emits, in and out of tmux. TABCOLOR_TTY
 # redirects them to a file, so none of this needs a tmux server or a pty, and
 # nothing can repaint the real pane the tests are running in.
 set -euo pipefail
@@ -17,7 +17,7 @@ DEFAULT=$'\033]6;1;bg;*;default\a'
 # Outside tmux: the sequence goes out verbatim.
 plain() {
   : >"$out"
-  env -u TMUX_PANE TABCOLOR_NO_ADOPT=1 TABCOLOR_TTY="$out" ./hooks/tabcolor.sh "$1"
+  env -u TMUX_PANE TABCOLOR_TTY="$out" ./hooks/tabcolor.sh "$1"
 }
 check() {
   [[ $(cat "$out") == "$2" ]] || { echo "FAIL $1: bytes differ"; od -c "$out" | head -4; exit 1; }
@@ -35,14 +35,14 @@ plain bogus  # unknown state must be a silent no-op, not a crash
 # the pane's tty, and iTerm2's control-mode integration applies it to that pane's
 # tab. Anything wrapping or escaping the sequence here would break -CC.
 : >"$out"
-TMUX_PANE=%1 TABCOLOR_NO_ADOPT=1 TABCOLOR_TTY="$out" ./hooks/tabcolor.sh busy
+TMUX_PANE=%1 TABCOLOR_TTY="$out" ./hooks/tabcolor.sh busy
 check "inside tmux" "$BUSY"
 
 # No controlling tty (hook run headless): must be silent and exit 0. /dev/tty is
 # world-writable even then, so a [[ -w /dev/tty ]] guard would let this through.
 # setsid(2) via python3, since macOS ships no setsid(1).
 for state in busy reset; do
-  err=$(env -u TMUX_PANE -u TABCOLOR_TTY TABCOLOR_NO_ADOPT=1 python3 -c \
+  err=$(env -u TMUX_PANE -u TABCOLOR_TTY python3 -c \
     'import os,subprocess,sys; os.setsid(); sys.exit(subprocess.call(sys.argv[1:]))' \
     ./hooks/tabcolor.sh "$state" 2>&1 >/dev/null </dev/null) || {
       echo "FAIL headless $state exited non-zero"; exit 1; }

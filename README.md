@@ -30,17 +30,34 @@ gets there.
   control-mode integration renders each tmux window as its own native tab and
   applies a pane's control sequences to that pane's tab, so this lands exactly
   where it should.
-- **Background sessions**, where neither `$TMUX_PANE` nor a controlling terminal
-  exists: Claude Code runs these under a host process that strips `TMUX` from the
-  environment and gives the hook no tty, so nothing above would fire. The
-  launching pane is still recoverable — an ancestor owns the terminal, and
-  `tmux list-panes` maps a terminal back to a pane. A background job therefore
-  colors the tab of the session that **launched** it, which is where you go to
-  deal with it, not whichever tab you happen to be looking at.
+- **Background sessions**: nothing, by design. See below.
 
-Adoption assumes tmux's default socket; export `TMUX` yourself if you run
-`tmux -S`. `TABCOLOR_NO_ADOPT=1` disables it and `TABCOLOR_TTY` redirects the
-bytes elsewhere; the tests use both so they cannot repaint the pane they run in.
+`TABCOLOR_TTY` redirects the bytes to a given tty or file; the tests use it so
+they cannot repaint the pane they run in.
+
+## Background sessions paint nothing
+
+Interactive sessions inherit `$TMUX_PANE` and colour their own tab with no
+guesswork. Background jobs do not inherit it, and there is no dependable way to
+recover which tab they belong to. Two approaches were built and both shipped
+the same bug — colouring an unrelated tab:
+
+- **Process lineage.** Claude Code runs background jobs under a host process
+  whose ancestry leads to whichever session parented the host pool, not the
+  session you launched the job from. In testing, a job started from one tab
+  resolved to a completely different project's tab.
+- **Working directory.** Two sessions open on the same directory are
+  indistinguishable, and a job's `cwd` is often a subdirectory of both.
+
+Also ruled out: `ps -E` cannot read ancestor environments reliably on macOS —
+it reports a process's environment as of `exec`, and misses `TMUX` entirely on
+a tmux pane's own login shell.
+
+If you want a specific background job to signal, point it at a tab explicitly:
+
+```bash
+TABCOLOR_TTY=/dev/ttys017 claude ...   # tmux display-message -p '#{pane_tty}'
+```
 
 ### Control mode only
 
