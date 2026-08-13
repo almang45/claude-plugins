@@ -31,18 +31,12 @@ plain reset;     check reset "$DEFAULT"
 plain bogus  # unknown state must be a silent no-op, not a crash
 [[ -z $(cat "$out") ]] || { echo "FAIL bogus state emitted output"; exit 1; }
 
-# Inside tmux: same payload wrapped in a DCS passthrough with every ESC doubled,
-# terminated by ST. Without this tmux swallows the sequence and the tab never
-# changes, which is the entire bug this plugin existed-but-did-nothing for.
-WRAPPED=$'\033Ptmux;\033\033]6;1;bg;red;brightness;74\a\033\033]6;1;bg;green;brightness;158\a\033\033]6;1;bg;blue;brightness;255\a\033\\'
+# Inside tmux the payload is identical, only the destination changes: it goes to
+# the pane's tty, and iTerm2's control-mode integration applies it to that pane's
+# tab. Anything wrapping or escaping the sequence here would break -CC.
 : >"$out"
 TMUX_PANE=%1 TABCOLOR_NO_ADOPT=1 TABCOLOR_TTY="$out" ./hooks/tabcolor.sh busy
-check wrapped "$WRAPPED"
-
-# Guard the two properties that make the wrapper work, so a refactor that
-# flattens the escaping fails loudly rather than silently painting nothing.
-grep -q $'\033\033]6' "$out" || { echo "FAIL wrapped: ESC not doubled"; exit 1; }
-[[ $(tail -c2 "$out") == $'\033\\' ]] || { echo "FAIL wrapped: missing ST terminator"; exit 1; }
+check "inside tmux" "$BUSY"
 
 # No controlling tty (hook run headless): must be silent and exit 0. /dev/tty is
 # world-writable even then, so a [[ -w /dev/tty ]] guard would let this through.

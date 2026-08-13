@@ -47,23 +47,19 @@ fi
 
 # TABCOLOR_TTY overrides where the bytes go. The tests assert on a plain file;
 # it also makes this debuggable without guessing which pty is involved.
+# Under tmux -CC, iTerm2 renders each tmux window as its own native tab and
+# applies a pane's control sequences to that pane's tab, so writing to the pane's
+# tty lands on the right tab with no wrapping at all.
+# ponytail: -CC only. Plain tmux swallows sequences it does not understand and
+# would need `set -g allow-passthrough on` plus a DCS wrapper with every ESC
+# doubled; add that branch if this ever has to run outside control mode.
 target=${TABCOLOR_TTY:-}
 if [[ -n ${TMUX_PANE:-} ]]; then
-  # tmux discards escape sequences it does not itself understand, so reaching the
-  # outer terminal means wrapping the payload in a DCS passthrough with every ESC
-  # doubled. That needs allow-passthrough, which is off by default; set it on the
-  # server rather than making anyone edit tmux.conf. Under tmux -CC this is the
-  # only path that works at all, since control mode draws no status line.
-  if [[ -z $target ]]; then
-    tmux set-option -gq allow-passthrough on 2>/dev/null
-    target=$(tmux display-message -p -t "$TMUX_PANE" '#{pane_tty}' 2>/dev/null)
-  fi
-  payload=$(osc)
-  sequence=$(printf '\033Ptmux;%s\033\\' "${payload//$'\033'/$'\033\033'}")
+  [[ -n $target ]] || target=$(tmux display-message -p -t "$TMUX_PANE" '#{pane_tty}' 2>/dev/null)
 else
   [[ -n $target ]] || target=/dev/tty
-  sequence=$(osc)
 fi
+sequence=$(osc)
 
 # Stay silent when the target is gone: this runs as a hook, where stray stderr
 # surfaces as noise. Testing /dev/tty with -w would not be enough, it is

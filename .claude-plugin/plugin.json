@@ -1,7 +1,7 @@
 {
   "name": "tabcolor",
-  "version": "0.2.0",
-  "description": "Colors the iTerm2 tab by Claude Code session state: blue working, orange waiting on you, green your turn. Works under tmux and tmux -CC.",
+  "version": "0.3.0",
+  "description": "Colors the iTerm2 tab by Claude Code session state: blue working, orange waiting on you, green your turn. Targets tmux -CC control mode.",
   "author": {
     "name": "almang45"
   }
