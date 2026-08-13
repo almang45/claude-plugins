@@ -1,6 +1,6 @@
 {
   "name": "tabcolor",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Colors the iTerm2 tab by Claude Code session state, mirroring the andon-light traffic light: yellow working, green your turn, red needs you. Targets tmux -CC control mode.",
   "author": {
     "name": "almang45"

@@ -11,13 +11,44 @@ from `hooks/claude-signal.sh` — so a tab and the lamp on the desk always agree
 |--------|-------|----------|
 | 🟡 yellow `#ff9600` | working | `UserPromptSubmit`, `PostToolUse` |
 | 🟢 green `#00ff00` | idle / complete, your turn | `SessionStart`, `Stop` |
-| 🔴 red `#ff0000` | stopped, needs you | `Notification` |
+| 🔴 red `#ff0000` | stopped, needs you | `Notification` (filtered, below) |
 | — | color cleared | `SessionEnd` |
 
 The one deliberate divergence is `PostToolUse` where andon-light wires
 `PreToolUse`: a permission prompt fires `Notification` *after* `PreToolUse`, so
 `PreToolUse` would leave the tab red until the next prompt. `PostToolUse` clears
 it the moment the approved tool finishes.
+
+## Why `Notification` needs a matcher
+
+`Notification` is not "a prompt is waiting for you". It carries a
+`notification_type`, and Claude Code sends thirteen of them, including
+`idle_prompt` — fired once the prompt has sat untouched for
+`messageIdleNotifThresholdMs` (60s by default). An unmatched red hook therefore
+turns every *idle* tab red about a minute after it goes green, which is exactly
+backwards.
+
+`hooks/hooks.json` allowlists the five that really mean "this session is
+blocked on you":
+
+    permission_prompt          the ordinary tool-permission dialog, sent 6s after it appears
+    worker_permission_prompt   a worker needs permission or network access
+    agent_needs_input          a subagent is blocked
+    elicitation_dialog         an MCP server is asking you something
+    elicitation_url_dialog     ditto, via URL
+
+The other eight — `idle_prompt`, `agent_completed`, `auth_success`,
+`computer_use_enter`, `computer_use_exit`, `elicitation_complete`,
+`elicitation_response`, `push_notification` — are events, not blockages, and
+leave the color alone. It is an allowlist rather than a denylist so a
+notification type added by a future release stays quiet instead of crying wolf.
+
+Matcher semantics matter here: Claude Code only splits on `|` when the pattern
+is plain `[a-zA-Z0-9_|]`. Add a `.` or a `*` and the whole thing becomes a
+regex, where `permission_prompt` would also match `worker_permission_prompt`.
+
+`andon-light/hooks/claude-signal.sh` has the same unmatched `Notification` wiring
+and so the same false red.
 
 ## Install
 

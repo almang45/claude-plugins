@@ -23,6 +23,8 @@
     ],
     "Notification": [
       {
+        "_comment": "Notification also fires on idle_prompt, agent_completed, auth_success and more, so an unmatched red hook paints tabs that want nothing. The matcher is the notification_type, and for a plain [a-zA-Z0-9_|] pattern Claude Code splits on | and compares exactly. Allowlist, so an unrecognised type stays quiet instead of crying wolf.",
+        "matcher": "permission_prompt|worker_permission_prompt|agent_needs_input|elicitation_dialog|elicitation_url_dialog",
         "hooks": [
           { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/tabcolor.sh\" attention", "timeout": 5 }
         ]

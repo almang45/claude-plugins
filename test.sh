@@ -71,11 +71,28 @@ err=$(env -u TMUX_PANE -u TABCOLOR_TTY CLAUDE_JOB_DIR="$fixture" \
 # hooks/hooks.json is loaded automatically. Naming it in the manifest too makes
 # the plugin fail to load with "Duplicate hooks file detected".
 python3 - <<'PY' || exit 1
-import json, sys
+import json, re, sys
 m = json.load(open(".claude-plugin/plugin.json"))
 if "hooks" in m:
     sys.exit("FAIL plugin.json must not declare the auto-loaded hooks/hooks.json")
-json.load(open("hooks/hooks.json"))
+h = json.load(open("hooks/hooks.json"))["hooks"]
+
+# Notification covers far more than permission prompts. Without a matcher the
+# tab goes red 60s into being idle, which is the exact opposite of the truth.
+for entry in h["Notification"]:
+    matcher = entry.get("matcher", "")
+    if not matcher:
+        sys.exit("FAIL Notification hook has no matcher: idle_prompt would paint the tab red")
+    # Claude Code only splits on | for this character class; anything else is
+    # treated as a regex, where these names would substring-match each other.
+    if not re.fullmatch(r"[A-Za-z0-9_|]+", matcher):
+        sys.exit(f"FAIL Notification matcher is not exact-match alternation: {matcher}")
+    types = matcher.split("|")
+    for quiet in ("idle_prompt", "agent_completed", "auth_success"):
+        if quiet in types:
+            sys.exit(f"FAIL Notification matcher must not include {quiet}")
+    if "permission_prompt" not in types:
+        sys.exit("FAIL Notification matcher must include permission_prompt")
 PY
 
 echo "ok"
