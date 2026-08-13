@@ -45,4 +45,9 @@ Edit the `case` block in `hooks/tabcolor.sh`. Three hex values, one place.
 ```
 
 Drives the script against a throwaway tmux server and reads the options back,
-then checks the OSC bytes under a pty.
+checks the OSC bytes under a `pty.fork()`, and asserts that a run with no
+controlling terminal stays silent and exits 0.
+
+That last case is the one to keep: `/dev/tty` is world-writable even when the
+process has no controlling terminal, so a `[[ -w /dev/tty ]]` guard passes and
+the open then fails with ENXIO. Seen for real when a hook runs headless.
