@@ -12,9 +12,35 @@ case "${1:-}" in
   *) exit 0 ;;
 esac
 
+# Background sessions run under a host process that strips TMUX from the
+# environment, and they have no controlling tty either, so without this they
+# could paint nothing at all. The launching pane is still up the process tree.
+# Background sessions run under a host that strips TMUX from the environment and
+# leaves the hook no controlling tty, so without this they could paint nothing at
+# all. The launching pane is still reachable: some ancestor owns the terminal,
+# and tmux maps a terminal back to a pane. Reading ancestor environments would be
+# the obvious route but is not dependable, macOS ps(1) reports a shell's env as
+# of exec and misses TMUX entirely on the pane's own shell.
+# TABCOLOR_NO_ADOPT exists so the test suite can exercise the iTerm2 and headless
+# paths without adopting, and repainting, the real pane the tests run in.
+if [[ -z ${TMUX_PANE:-} && -z ${TABCOLOR_NO_ADOPT:-} ]]; then
+  pid=$PPID
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    [[ -n $pid && $pid -gt 1 ]] || break
+    term=$(ps -o tty= -p "$pid" 2>/dev/null | tr -d '[:space:]')
+    if [[ -n $term && $term != '??' ]]; then
+      # ponytail: default socket only. Export TMUX yourself if you run tmux -S.
+      TMUX_PANE=$(tmux list-panes -a -F '#{pane_id} #{pane_tty}' 2>/dev/null |
+        awk -v tty="/dev/$term" '$2 == tty { print $1; exit }')
+      break
+    fi
+    pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d '[:space:]')
+  done
+fi
+
 # A dead tmux server or a missing controlling tty must stay silent: this runs as
 # a hook, where stray stderr surfaces as noise in the session.
-if [[ -n ${TMUX:-} && -n ${TMUX_PANE:-} ]]; then
+if [[ -n ${TMUX_PANE:-} ]]; then
   if [[ -z $hex ]]; then
     tmux set-option -uw -t "$TMUX_PANE" window-status-style 2>/dev/null
     tmux set-option -uw -t "$TMUX_PANE" window-status-current-style 2>/dev/null

@@ -23,6 +23,16 @@ run reset
 run bogus  # unknown state must be a no-op, not a crash
 [[ -z $(style) ]] || { echo "FAIL bogus state changed style"; exit 1; }
 
+run reset
+
+# Pane adoption is deliberately not covered here. It resolves the terminal of the
+# process tree the script is running in, which during a test IS the developer's
+# real session, on the default socket, not this throwaway server. Faking a tree
+# convincingly costs more than it proves; verify it by hand instead:
+#   tmux new-session, run claude inside it as a background job, watch the window.
+# Every case below opts out via TABCOLOR_NO_ADOPT so adoption cannot hijack them.
+export TABCOLOR_NO_ADOPT=1
+
 # iTerm2 branch: no TMUX, run under a pty so /dev/tty resolves and is capturable.
 # pty.fork() rather than script(1): it sets up its own session and controlling
 # terminal instead of inheriting stdin, which is not a tty under every runner.

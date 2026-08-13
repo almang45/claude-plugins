@@ -22,12 +22,23 @@ Or from inside a session: `/plugin marketplace add <path>` then `/plugin install
 
 ## How it picks a target
 
-- **Inside tmux** (`$TMUX` set): sets `window-status-style` and
+- **Inside tmux** (`$TMUX_PANE` set): sets `window-status-style` and
   `window-status-current-style` on the window owning `$TMUX_PANE`. Each session
   colors only its own window; nothing else is touched, and `reset` unsets the
   options rather than hardcoding your theme's defaults back.
+- **Background sessions**, where neither applies: Claude Code runs these under a
+  host process that strips `TMUX` from the environment and leaves the hook with
+  no controlling terminal, so both branches above would no-op. The launching pane
+  is still recoverable — an ancestor owns the terminal, and `tmux list-panes`
+  maps a terminal back to a pane. Walking ancestor *environments* instead looks
+  obvious and does not work: macOS `ps -E` reports a shell's environment as of
+  exec and misses `TMUX` on the pane's own shell.
 - **Outside tmux**: emits iTerm2's OSC 6 tab-color sequence to `/dev/tty` —
   hook stdout is consumed by Claude Code and never reaches the terminal.
+
+Adoption assumes tmux's default socket; export `TMUX` yourself if you run
+`tmux -S`. Set `TABCOLOR_NO_ADOPT=1` to disable it, which is what the tests do so
+they cannot repaint the real pane they are running in.
 
 Inside tmux you get the tmux window color, not the iTerm2 tab. Coloring the
 outer iTerm2 tab from inside tmux needs `set -g allow-passthrough on` plus
