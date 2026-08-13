@@ -1,0 +1,4 @@
+# Installing from a directory source copies the tree verbatim, worktrees and
+# all, so keep them out of the repo rather than only out of git's index.
+.claude/worktrees/
+.DS_Store
