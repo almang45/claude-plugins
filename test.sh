@@ -1,77 +1,57 @@
 #!/usr/bin/env bash
-# End-to-end: drives tabcolor.sh against a throwaway tmux server and reads the
-# option back. Also checks the iTerm2 OSC branch via a fake tty.
+# Asserts the exact bytes the hook emits, raw and DCS-wrapped. TABCOLOR_TTY
+# redirects them to a file, so none of this needs a tmux server or a pty, and
+# nothing can repaint the real pane the tests are running in.
 set -euo pipefail
 cd "$(dirname "$0")"
 
-sock=$(mktemp -u "${TMPDIR:-/tmp}/tabcolor-test.XXXXXX")
-tmux -S "$sock" new-session -d -s t
-trap 'tmux -S "$sock" kill-server 2>/dev/null || true' EXIT
-pane=$(tmux -S "$sock" list-panes -t t -F '#{pane_id}')
+out=$(mktemp "${TMPDIR:-/tmp}/tabcolor-test.XXXXXX")
+trap 'rm -f "$out"' EXIT
 
-run() { TMUX="$sock,0,0" TMUX_PANE="$pane" ./hooks/tabcolor.sh "$1"; }
-style() { tmux -S "$sock" show-options -wqv -t "$pane" window-status-current-style; }
+# 4a9eff -> 74 158 255, ff9f0a -> 255 159 10, 30d158 -> 48 209 88.
+BUSY=$'\033]6;1;bg;red;brightness;74\a\033]6;1;bg;green;brightness;158\a\033]6;1;bg;blue;brightness;255\a'
+ATTN=$'\033]6;1;bg;red;brightness;255\a\033]6;1;bg;green;brightness;159\a\033]6;1;bg;blue;brightness;10\a'
+IDLE=$'\033]6;1;bg;red;brightness;48\a\033]6;1;bg;green;brightness;209\a\033]6;1;bg;blue;brightness;88\a'
+DEFAULT=$'\033]6;1;bg;*;default\a'
 
-for state in busy:4a9eff attention:ff9f0a idle:30d158; do
-  run "${state%%:*}"
-  [[ $(style) == "bg=#${state##*:},fg=black,bold" ]] || { echo "FAIL ${state%%:*}: $(style)"; exit 1; }
-done
+# Outside tmux: the sequence goes out verbatim.
+plain() {
+  : >"$out"
+  env -u TMUX_PANE TABCOLOR_NO_ADOPT=1 TABCOLOR_TTY="$out" ./hooks/tabcolor.sh "$1"
+}
+check() {
+  [[ $(cat "$out") == "$2" ]] || { echo "FAIL $1: bytes differ"; od -c "$out" | head -4; exit 1; }
+}
 
-run reset
-[[ -z $(style) ]] || { echo "FAIL reset: $(style)"; exit 1; }
+plain busy;      check busy "$BUSY"
+plain attention; check attention "$ATTN"
+plain idle;      check idle "$IDLE"
+plain reset;     check reset "$DEFAULT"
 
-run bogus  # unknown state must be a no-op, not a crash
-[[ -z $(style) ]] || { echo "FAIL bogus state changed style"; exit 1; }
+plain bogus  # unknown state must be a silent no-op, not a crash
+[[ -z $(cat "$out") ]] || { echo "FAIL bogus state emitted output"; exit 1; }
 
-run reset
+# Inside tmux: same payload wrapped in a DCS passthrough with every ESC doubled,
+# terminated by ST. Without this tmux swallows the sequence and the tab never
+# changes, which is the entire bug this plugin existed-but-did-nothing for.
+WRAPPED=$'\033Ptmux;\033\033]6;1;bg;red;brightness;74\a\033\033]6;1;bg;green;brightness;158\a\033\033]6;1;bg;blue;brightness;255\a\033\\'
+: >"$out"
+TMUX_PANE=%1 TABCOLOR_NO_ADOPT=1 TABCOLOR_TTY="$out" ./hooks/tabcolor.sh busy
+check wrapped "$WRAPPED"
 
-# Pane adoption is deliberately not covered here. It resolves the terminal of the
-# process tree the script is running in, which during a test IS the developer's
-# real session, on the default socket, not this throwaway server. Faking a tree
-# convincingly costs more than it proves; verify it by hand instead:
-#   tmux new-session, run claude inside it as a background job, watch the window.
-# Every case below opts out via TABCOLOR_NO_ADOPT so adoption cannot hijack them.
-export TABCOLOR_NO_ADOPT=1
-
-# iTerm2 branch: no TMUX, run under a pty so /dev/tty resolves and is capturable.
-# pty.fork() rather than script(1): it sets up its own session and controlling
-# terminal instead of inheriting stdin, which is not a tty under every runner.
-# 4a9eff -> 74 158 255.
-osc=$(env -u TMUX -u TMUX_PANE python3 - ./hooks/tabcolor.sh busy <<'PY' | tr -d '\r'
-import os, pty, sys
-pid, fd = pty.fork()
-if pid == 0:
-    os.execv(sys.argv[1], sys.argv[1:])
-out = b""
-while True:
-    try:
-        chunk = os.read(fd, 4096)
-    except OSError:
-        break
-    if not chunk:
-        break
-    out += chunk
-status = os.waitpid(pid, 0)[1]
-sys.stdout.write(out.decode("utf-8", "replace"))
-sys.exit(os.waitstatus_to_exitcode(status))
-PY
-)
-for want in 'red;brightness;74' 'green;brightness;158' 'blue;brightness;255'; do
-  [[ $osc == *"$want"* ]] || { echo "FAIL osc missing $want"; exit 1; }
-done
+# Guard the two properties that make the wrapper work, so a refactor that
+# flattens the escaping fails loudly rather than silently painting nothing.
+grep -q $'\033\033]6' "$out" || { echo "FAIL wrapped: ESC not doubled"; exit 1; }
+[[ $(tail -c2 "$out") == $'\033\\' ]] || { echo "FAIL wrapped: missing ST terminator"; exit 1; }
 
 # No controlling tty (hook run headless): must be silent and exit 0. /dev/tty is
-# world-writable regardless, so this is the case a -w guard silently lets through.
-# setsid(2) via python3, since macOS ships no setsid(1); without it this case
-# would silently pass on any machine that happens to have a terminal attached.
-detached() {
-  env -u TMUX -u TMUX_PANE python3 -c \
-    'import os,subprocess,sys; os.setsid(); sys.exit(subprocess.call(sys.argv[1:]))' \
-    ./hooks/tabcolor.sh "$1"
-}
+# world-writable even then, so a [[ -w /dev/tty ]] guard would let this through.
+# setsid(2) via python3, since macOS ships no setsid(1).
 for state in busy reset; do
-  err=$(detached "$state" 2>&1 >/dev/null </dev/null) || {
-    echo "FAIL headless $state exited non-zero"; exit 1; }
+  err=$(env -u TMUX_PANE -u TABCOLOR_TTY TABCOLOR_NO_ADOPT=1 python3 -c \
+    'import os,subprocess,sys; os.setsid(); sys.exit(subprocess.call(sys.argv[1:]))' \
+    ./hooks/tabcolor.sh "$state" 2>&1 >/dev/null </dev/null) || {
+      echo "FAIL headless $state exited non-zero"; exit 1; }
   [[ -z $err ]] || { echo "FAIL headless $state wrote to stderr: $err"; exit 1; }
 done
 

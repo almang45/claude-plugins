@@ -1,8 +1,7 @@
 # tabcolor
 
-Claude Code plugin. Paints the tmux window (or the iTerm2 tab, outside tmux)
-with the session's current state, so a wall of panes tells you which one wants
-you without reading any of them.
+Claude Code plugin. Paints the iTerm2 tab with the session's current state, so a
+wall of tabs tells you which one wants you without reading any of them.
 
 | Color  | State | Fired by |
 |--------|-------|----------|
@@ -20,30 +19,36 @@ claude plugin install tabcolor@tabcolor
 
 Or from inside a session: `/plugin marketplace add <path>` then `/plugin install tabcolor@tabcolor`.
 
-## How it picks a target
+## How it reaches the tab
 
-- **Inside tmux** (`$TMUX_PANE` set): sets `window-status-style` and
-  `window-status-current-style` on the window owning `$TMUX_PANE`. Each session
-  colors only its own window; nothing else is touched, and `reset` unsets the
-  options rather than hardcoding your theme's defaults back.
-- **Background sessions**, where neither applies: Claude Code runs these under a
-  host process that strips `TMUX` from the environment and leaves the hook with
-  no controlling terminal, so both branches above would no-op. The launching pane
-  is still recoverable — an ancestor owns the terminal, and `tmux list-panes`
-  maps a terminal back to a pane. Walking ancestor *environments* instead looks
-  obvious and does not work: macOS `ps -E` reports a shell's environment as of
-  exec and misses `TMUX` on the pane's own shell.
-- **Outside tmux**: emits iTerm2's OSC 6 tab-color sequence to `/dev/tty` —
-  hook stdout is consumed by Claude Code and never reaches the terminal.
+Everything ends in iTerm2's OSC 6 tab-color sequence. What differs is how it
+gets there.
+
+- **Outside tmux**: written straight to `/dev/tty`. Hook stdout is consumed by
+  Claude Code and never reaches the terminal, so the tty is the only route.
+- **Inside tmux**: tmux discards escape sequences it does not itself understand,
+  so the payload is wrapped in a DCS passthrough (`ESC P tmux; … ESC \`) with
+  every `ESC` in it doubled, then written to the pane's tty. This needs
+  `allow-passthrough`, which is off by default — the hook turns it on rather than
+  making you edit `tmux.conf`.
+- **Background sessions**, where neither `$TMUX_PANE` nor a controlling terminal
+  exists: Claude Code runs these under a host process that strips `TMUX` from the
+  environment and gives the hook no tty, so nothing above would fire. The
+  launching pane is still recoverable — an ancestor owns the terminal, and
+  `tmux list-panes` maps a terminal back to a pane.
 
 Adoption assumes tmux's default socket; export `TMUX` yourself if you run
-`tmux -S`. Set `TABCOLOR_NO_ADOPT=1` to disable it, which is what the tests do so
-they cannot repaint the real pane they are running in.
+`tmux -S`. `TABCOLOR_NO_ADOPT=1` disables it and `TABCOLOR_TTY` redirects the
+bytes elsewhere; the tests use both so they cannot repaint the pane they run in.
 
-Inside tmux you get the tmux window color, not the iTerm2 tab. Coloring the
-outer iTerm2 tab from inside tmux needs `set -g allow-passthrough on` plus
-DCS-wrapped sequences — skipped, add it if you run one Claude session per
-iTerm2 tab and want the outer tab to react.
+### Under `tmux -CC`
+
+iTerm2's control-mode integration renders tmux windows as native iTerm2 tabs and
+never draws tmux's own status line. An earlier version of this plugin set
+`window-status-style`, which works in plain tmux and is completely invisible
+under `-CC`. Passthrough is the only mechanism that reaches the tab in control
+mode, and it happens to be the better one in plain tmux too — it colors the real
+iTerm2 tab rather than a cell in a status bar — so the status-bar path is gone.
 
 ## Customizing
 
@@ -55,10 +60,14 @@ Edit the `case` block in `hooks/tabcolor.sh`. Three hex values, one place.
 ./test.sh
 ```
 
-Drives the script against a throwaway tmux server and reads the options back,
-checks the OSC bytes under a `pty.fork()`, and asserts that a run with no
-controlling terminal stays silent and exits 0.
+Asserts the exact bytes for every state, raw and DCS-wrapped, plus the two
+properties that make the wrapper work: `ESC` doubled, `ST` terminator. Needs no
+tmux server and no pty, and cannot repaint the pane it runs in.
 
-That last case is the one to keep: `/dev/tty` is world-writable even when the
-process has no controlling terminal, so a `[[ -w /dev/tty ]]` guard passes and
-the open then fails with ENXIO. Seen for real when a hook runs headless.
+Two failures worth keeping guards for, both seen for real:
+
+- `/dev/tty` is world-writable even with no controlling terminal, so a
+  `[[ -w /dev/tty ]]` guard passes and the open then fails `ENXIO`. Hooks running
+  headless printed `Device not configured` on every invocation.
+- Flattening the `ESC` doubling in the passthrough makes tmux swallow the whole
+  sequence. Nothing errors; the tab just silently never changes.

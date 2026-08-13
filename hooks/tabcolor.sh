@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Paints the tmux window (or iTerm2 tab) with the current Claude Code state.
+# Paints the iTerm2 tab with the current Claude Code state.
 # Invoked by hooks with exactly one argument: busy | attention | idle | reset.
 set -uo pipefail
 
@@ -12,17 +12,24 @@ case "${1:-}" in
   *) exit 0 ;;
 esac
 
-# Background sessions run under a host process that strips TMUX from the
-# environment, and they have no controlling tty either, so without this they
-# could paint nothing at all. The launching pane is still up the process tree.
+# iTerm2's tab-color control sequence. Set per channel, or restore the default.
+osc() {
+  if [[ -z $hex ]]; then
+    printf '\033]6;1;bg;*;default\a'
+  else
+    printf '\033]6;1;bg;red;brightness;%d\a\033]6;1;bg;green;brightness;%d\a\033]6;1;bg;blue;brightness;%d\a' \
+      "$((16#${hex:0:2}))" "$((16#${hex:2:2}))" "$((16#${hex:4:2}))"
+  fi
+}
+
 # Background sessions run under a host that strips TMUX from the environment and
 # leaves the hook no controlling tty, so without this they could paint nothing at
 # all. The launching pane is still reachable: some ancestor owns the terminal,
 # and tmux maps a terminal back to a pane. Reading ancestor environments would be
 # the obvious route but is not dependable, macOS ps(1) reports a shell's env as
 # of exec and misses TMUX entirely on the pane's own shell.
-# TABCOLOR_NO_ADOPT exists so the test suite can exercise the iTerm2 and headless
-# paths without adopting, and repainting, the real pane the tests run in.
+# TABCOLOR_NO_ADOPT exists so the test suite can exercise the plain-terminal path
+# without adopting, and repainting, the real pane the tests run in.
 if [[ -z ${TMUX_PANE:-} && -z ${TABCOLOR_NO_ADOPT:-} ]]; then
   pid=$PPID
   for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
@@ -38,28 +45,30 @@ if [[ -z ${TMUX_PANE:-} && -z ${TABCOLOR_NO_ADOPT:-} ]]; then
   done
 fi
 
-# A dead tmux server or a missing controlling tty must stay silent: this runs as
-# a hook, where stray stderr surfaces as noise in the session.
+# TABCOLOR_TTY overrides where the bytes go. The tests assert on a plain file;
+# it also makes this debuggable without guessing which pty is involved.
+target=${TABCOLOR_TTY:-}
 if [[ -n ${TMUX_PANE:-} ]]; then
-  if [[ -z $hex ]]; then
-    tmux set-option -uw -t "$TMUX_PANE" window-status-style 2>/dev/null
-    tmux set-option -uw -t "$TMUX_PANE" window-status-current-style 2>/dev/null
-  else
-    tmux set-option -w -t "$TMUX_PANE" window-status-style "bg=#$hex,fg=black" 2>/dev/null
-    tmux set-option -w -t "$TMUX_PANE" window-status-current-style "bg=#$hex,fg=black,bold" 2>/dev/null
+  # tmux discards escape sequences it does not itself understand, so reaching the
+  # outer terminal means wrapping the payload in a DCS passthrough with every ESC
+  # doubled. That needs allow-passthrough, which is off by default; set it on the
+  # server rather than making anyone edit tmux.conf. Under tmux -CC this is the
+  # only path that works at all, since control mode draws no status line.
+  if [[ -z $target ]]; then
+    tmux set-option -gq allow-passthrough on 2>/dev/null
+    target=$(tmux display-message -p -t "$TMUX_PANE" '#{pane_tty}' 2>/dev/null)
   fi
-  exit 0
+  payload=$(osc)
+  sequence=$(printf '\033Ptmux;%s\033\\' "${payload//$'\033'/$'\033\033'}")
+else
+  [[ -n $target ]] || target=/dev/tty
+  sequence=$(osc)
 fi
 
-# iTerm2 OSC 6, written to the tty because hook stdout is consumed by Claude Code
-# and never reaches the terminal. Guarding with -w is not enough: /dev/tty is
-# world-writable even when the process has no controlling terminal, where the
-# open then fails with ENXIO. So just attempt it, with 2>/dev/null ordered ahead
-# of the tty redirect so the shell's own failure message is swallowed too.
-if [[ -z $hex ]]; then
-  { printf '\033]6;1;bg;*;default\a'; } 2>/dev/null >/dev/tty
-else
-  { printf '\033]6;1;bg;red;brightness;%d\a\033]6;1;bg;green;brightness;%d\a\033]6;1;bg;blue;brightness;%d\a' \
-    "$((16#${hex:0:2}))" "$((16#${hex:2:2}))" "$((16#${hex:4:2}))"; } 2>/dev/null >/dev/tty
-fi
+# Stay silent when the target is gone: this runs as a hook, where stray stderr
+# surfaces as noise. Testing /dev/tty with -w would not be enough, it is
+# world-writable even with no controlling terminal, where the open fails ENXIO.
+# 2>/dev/null is ordered first so the shell's own redirect error is swallowed.
+[[ -n $target ]] || exit 0
+{ printf '%s' "$sequence"; } 2>/dev/null >"$target"
 exit 0
