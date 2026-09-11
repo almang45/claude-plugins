@@ -1,0 +1,8 @@
+{
+  "name": "tabcolor",
+  "version": "0.10.0",
+  "description": "Tints the iTerm2 tab by Claude Code session state, as a muted andon light: amber working, moss your turn, oxblood needs you. Targets tmux -CC control mode.",
+  "author": {
+    "name": "almang45"
+  }
+}
