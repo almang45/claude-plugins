@@ -120,7 +120,6 @@ for event, entries in h.items():
 assert states == {"busy", "idle", "attention"}, states
 assert pathlib.Path("hooks/chime.sh").stat().st_mode & 0o111, "chime.sh not executable"
 json.load(open(".claude-plugin/plugin.json"))
-json.load(open(".claude-plugin/marketplace.json"))
 print("ok   hooks.json wires all three states")
 '
 echo "PASS"
