@@ -1,0 +1,8 @@
+{
+  "name": "chime",
+  "version": "0.3.0",
+  "description": "Plays a sound when a Claude Code session finishes a turn or needs you. Random pick from a pool per state, overridable with your own recordings or synthesised speech.",
+  "author": {
+    "name": "almang45"
+  }
+}

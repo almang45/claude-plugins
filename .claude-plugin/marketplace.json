@@ -1,0 +1,20 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "alm-plugins",
+  "description": "almang45's Claude Code plugins",
+  "owner": {
+    "name": "almang45"
+  },
+  "plugins": [
+    {
+      "name": "chime",
+      "description": "Plays a macOS system sound when a session finishes a turn or needs input.",
+      "source": "./plugins/chime"
+    },
+    {
+      "name": "tabcolor",
+      "description": "Colors the tmux window / iTerm2 tab by Claude Code session state.",
+      "source": "./plugins/tabcolor"
+    }
+  ]
+}
