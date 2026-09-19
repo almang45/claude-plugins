@@ -17,10 +17,11 @@ case "${1:-}" in
   # call is unlivable.
   busy)      pool=(Glass Ping); phrases=(); vol=0.2 ;;
   # Turn finished, your move.
-  idle)      pool=(Glass Hero Ping Blow); vol=0.6
+  idle)      pool=(Glass Hero Ping Blow); vol=0.8
              phrases=("your turn" "all done" "ready when you are" "finished") ;;
-  # Stopped, wants an answer. The only state allowed to be loud.
-  attention) pool=(Submarine Sosumi Funk Basso); vol=1.0
+  # Stopped, wants an answer. Same level as idle: both are your own recordings,
+  # and a 5.6dB gap between two voices read as a bug, not a tier.
+  attention) pool=(Submarine Sosumi Funk Basso); vol=0.8
              phrases=("needs you" "waiting on you" "permission needed" "stuck") ;;
   *) exit 0 ;;
 esac

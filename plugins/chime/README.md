@@ -10,13 +10,15 @@ verb would.
 
 | State | Default sounds | Volume | Fired by |
 |-------|----------------|--------|----------|
-| working | `Tink` `Pop` `Morse` `Bottle` `Purr` | 0.2 | `UserPromptSubmit`, `PostToolUse` |
-| your turn | `Glass` `Hero` `Ping` `Blow` | 0.6 | `Stop` |
-| needs you | `Submarine` `Sosumi` `Funk` `Basso` | 1.0 | `Notification` (filtered) |
+| working | `Glass` `Ping` | 0.2 | `UserPromptSubmit`, `PostToolUse` |
+| your turn | `Glass` `Hero` `Ping` `Blow` | 0.8 | `Stop` |
+| needs you | `Submarine` `Sosumi` `Funk` `Basso` | 0.8 | `Notification` (filtered) |
 
 Volume is the point of the tiering: the working ticks fire once per tool call
-and are meant to sit under whatever you are listening to, while "needs you" is
-the only state allowed to interrupt. Defaults are macOS's own
+and are meant to sit under whatever you are listening to, so they stay at 0.2.
+The two states that actually want you share 0.8 — once both are your own
+recordings, a gap between them reads as one clip being broken, not as a tier.
+Defaults are macOS's own
 `/System/Library/Sounds`, so nothing ships audio and there is nothing to install.
 
 ## Your own sounds

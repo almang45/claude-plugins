@@ -46,10 +46,11 @@ sweep() {
   echo "ok   $label ($distinct variants)"
 }
 
-# 1. Built-in system sounds: one pool and one volume per state.
+# 1. Built-in system sounds: one pool per state. busy sits under the music at
+# 0.2; idle and attention share 0.8, so neither voice clip startles the other.
 sweep "busy      -> quiet system tick" busy      "afplay -v 0.2 /System/Library/Sounds/"
-sweep "idle      -> system chime"      idle      "afplay -v 0.6 /System/Library/Sounds/"
-sweep "attention -> loud system alert" attention "afplay -v 1.0 /System/Library/Sounds/"
+sweep "idle      -> system chime"      idle      "afplay -v 0.8 /System/Library/Sounds/"
+sweep "attention -> system alert"      attention "afplay -v 0.8 /System/Library/Sounds/"
 
 # Read out of the script rather than duplicated here, so editing a pool cannot
 # leave this list asserting sounds nothing plays any more.
@@ -65,7 +66,7 @@ echo "ok   all $count system sounds named in chime.sh exist"
 # 2. Recordings in CHIME_DIR/<state>/ take over that state, and only that state.
 mkdir -p "$tmp/sounds/idle"
 touch "$tmp/sounds/idle/a.wav" "$tmp/sounds/idle/b.m4a" "$tmp/sounds/idle/c.aiff"
-sweep "idle      -> custom recordings" idle "afplay -v 0.6 $tmp/sounds/idle/"
+sweep "idle      -> custom recordings" idle "afplay -v 0.8 $tmp/sounds/idle/"
 : >"$log"; fire busy
 grep -q '/System/Library/Sounds/' "$log" || { echo "FAIL: custom idle leaked into busy"; exit 1; }
 echo "ok   custom dir is per-state, busy untouched"
@@ -74,17 +75,17 @@ echo "ok   custom dir is per-state, busy untouched"
 # ~/.claude/chime looks like before you record anything.
 mkdir -p "$tmp/sounds/attention"
 : >"$log"; fire attention
-grep -q '^afplay -v 1.0 /System/Library/Sounds/' "$log" || { echo "FAIL: empty custom dir silenced the state"; exit 1; }
+grep -q '^afplay -v 0.8 /System/Library/Sounds/' "$log" || { echo "FAIL: empty custom dir silenced the state"; exit 1; }
 echo "ok   empty custom dir falls through to system sounds"
 
 # 3. Speech is opt-in and carries the state's volume. attention has no custom
 #    dir, so this is the speech path proper.
 export CHIME_SAY=1
-sweep "attention -> spoken phrase" attention "say [[volm 1.0]] "
+sweep "attention -> spoken phrase" attention "say [[volm 0.8]] "
 
 # 4. A recording you bothered to make outranks the synthesised voice.
 : >"$log"; fire idle
-grep -q "^afplay -v 0.6 $tmp/sounds/idle/" "$log" || { echo "FAIL: speech overrode custom recording"; exit 1; }
+grep -q "^afplay -v 0.8 $tmp/sounds/idle/" "$log" || { echo "FAIL: speech overrode custom recording"; exit 1; }
 echo "ok   custom recordings beat speech"
 
 # 5. busy has no phrases on purpose: a voice per tool call is unlivable.
@@ -94,7 +95,7 @@ echo "ok   busy stays a tick even in speech mode"
 
 # 6. CHIME_VOICE picks the voice, and only when set.
 : >"$log"; CHIME_VOICE=Samantha fire attention
-grep -q '^say -v Samantha \[\[volm 1.0\]\] ' "$log" || { echo "FAIL: CHIME_VOICE ignored: $(cat "$log")"; exit 1; }
+grep -q '^say -v Samantha \[\[volm 0.8\]\] ' "$log" || { echo "FAIL: CHIME_VOICE ignored: $(cat "$log")"; exit 1; }
 echo "ok   CHIME_VOICE selects the voice"
 unset CHIME_SAY
 
