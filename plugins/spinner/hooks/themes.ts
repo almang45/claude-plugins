@@ -6,10 +6,12 @@ import type { Grid, Style } from './cells'
 import { SCENE_ROWS, bluecatScene, chompScene, clawdScene, nyanScene, sparkyScene, thunderScene } from './scenes'
 import { AUDIO_BANDS, demoView } from './audio'
 import type { AudioFeed } from './audio'
+import { WARFRAME, WARFRAME_THEMES } from './warframe'
 
 export * from './cells'
 
 export const THEME_NAMES = [
+  ...WARFRAME,
   'clawd',
   'thunder',
   'chomp',
@@ -78,9 +80,9 @@ export function isThemeName(name: unknown): name is ThemeName {
   return typeof name === 'string' && (THEME_NAMES as readonly string[]).includes(name)
 }
 
-/** A theme drawn from `seed`, for the `random` choice. */
+/** A theme drawn from `seed`, for the `random` choice: a Warframe one, in this fork. */
 export function pickRandom(seed: number): ThemeName {
-  const pool = THEME_NAMES.filter(n => !OPT_IN.includes(n))
+  const pool = WARFRAME.filter(n => !OPT_IN.includes(n))
   return pool[Math.floor(noise(seed) * pool.length)]!
 }
 
@@ -313,6 +315,7 @@ const RAINBOW = ['#ff0000', '#ff9900', '#ffff00', '#33ff00', '#0099ff', '#6633ff
 // ---- themes --------------------------------------------------------------
 
 export const THEMES: Record<ThemeName, Theme> = {
+  ...WARFRAME_THEMES,
   cat: {
     name: 'cat',
     rows: 2,

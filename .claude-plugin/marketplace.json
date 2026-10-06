@@ -15,6 +15,11 @@
       "name": "tabcolor",
       "description": "Colors the tmux window / iTerm2 tab by Claude Code session state.",
       "source": "./plugins/tabcolor"
+    },
+    {
+      "name": "spinner",
+      "description": "Warframe fork of hoobnn's spinner mod: pixel scenes, a mascot beside the spinner and a companion pet in six Warframe themes.",
+      "source": "./plugins/spinner"
     }
   ]
 }

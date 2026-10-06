@@ -6,6 +6,7 @@ import { blank, canvas, cells, draw, mod, noise, plot, segments } from './cells'
 import type { Canvas, Grid } from './cells'
 import type { DockPet } from '../types'
 import type { Act, Mood } from './themes'
+import { WARFRAME_PETS } from './warframe'
 
 export type PetState = Act | Mood
 
@@ -289,6 +290,7 @@ export const AUDIO_PET: PetArt = {
 }
 
 const PETS: Record<string, PetArt> = {
+  ...WARFRAME_PETS,
   clawd: CLAWD_PET,
   thunder: THUNDER_PET,
   chomp: CHOMP_PET,
