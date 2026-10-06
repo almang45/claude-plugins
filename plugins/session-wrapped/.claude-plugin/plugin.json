@@ -1,6 +1,6 @@
 {
   "name": "session-wrapped",
-  "version": "0.1.0",
+  "version": "0.1.0-alm.1",
   "description": "Spotify Wrapped for a Claude Code session: an animated stat reveal and a shareable PNG card",
   "types": "./types/index.d.ts",
   "license": "MIT",

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Week and month usage from Claude Code transcripts, for /wrapped.
 
-Reads ~/.claude/projects/**/*.jsonl, folds each file into per-day rollups,
+Reads $CLAUDE_CONFIG_DIR/projects/**/*.jsonl (default ~/.claude), folds each file into per-day rollups,
 caches them by (mtime, size) so later runs only re-read changed files, and
 prints {"week": Window, "month": Window} as JSON on stdout.
 """
@@ -14,7 +14,8 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 HOME = os.path.expanduser("~")
-ROOT = os.path.join(HOME, ".claude", "projects")
+# The engine runs a non-default profile under CLAUDE_CONFIG_DIR; its transcripts live there, not in ~/.claude.
+ROOT = os.path.join(os.path.expanduser(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(HOME, ".claude")), "projects")
 CACHE = os.path.join(HOME, ".cache", "session-wrapped", "usage-v3.json")
 DAYS = 30
 UUIDISH = re.compile(r"^[0-9a-f]{8}[-_][0-9a-f]{4}")

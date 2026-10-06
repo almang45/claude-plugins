@@ -20,6 +20,16 @@
       "name": "spinner",
       "description": "Warframe fork of hoobnn's spinner mod: pixel scenes, a mascot beside the spinner and a companion pet in six Warframe themes.",
       "source": "./plugins/spinner"
+    },
+    {
+      "name": "swarm",
+      "description": "OneWave's swarm mod: /swarm opens a live map of subagents and agent teams, who spawned whom, what each is doing, who is talking.",
+      "source": "./plugins/swarm"
+    },
+    {
+      "name": "session-wrapped",
+      "description": "OneWave's session-wrapped mod: /wrapped plays a Spotify-Wrapped-style session recap and saves a PNG card to ~/Desktop.",
+      "source": "./plugins/session-wrapped"
     }
   ]
 }
