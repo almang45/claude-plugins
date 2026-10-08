@@ -224,7 +224,28 @@ test('the terminal spinner shimmers, the desktop one is an animated icon beside 
   expect(await desktop.find({ type: 'Text', text: 'Sauteing' })).toBeDefined()
 })
 
-test('the turn footer names the time in the skin’s words', async ($, on) => {
+test('the spinner and footer keep Claude Code’s words until /skin words on', async ($, on) => {
+  stubEngine(on)
+
+  const spinner = { ...SITE, surface: 'terminal', component: 'Spinner', requestId: 'main', props: { word: 'Bullet-Jumping', message: null, suffix: '…', mode: 'responding' } } as const
+  const footer = { ...SITE, surface: 'terminal', component: 'TurnDuration', requestId: 'f2', props: { word: 'Farmed', durationMs: 64000 } } as const
+
+  const kept = await $.ui.mount(spinner)
+  expect(await kept.find({ type: 'Text', text: /^⠋ Bullet-Jumping…/ })).toBeDefined()
+  await kept.unmount()
+  const keptFooter = await $.ui.mount(footer)
+  expect(await keptFooter.find({ type: 'Text', text: /^◆ Farmed in 1m 4s$/ })).toBeDefined()
+  await keptFooter.unmount()
+
+  await $.command.run({ command: 'skin', args: 'words on', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } } as never)
+
+  const swapped = await $.ui.mount(spinner)
+  expect(await swapped.find({ type: 'Text', text: /^⠋ .+…/ })).toBeDefined()
+  expect(await swapped.find({ type: 'Text', text: /Bullet-Jumping/ })).toBeUndefined()
+  await swapped.unmount()
+})
+
+test('the turn footer names the time', async ($, on) => {
   stubEngine(on)
 
   const ui = await $.ui.mount({

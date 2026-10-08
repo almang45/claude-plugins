@@ -103,6 +103,7 @@ export function settingsPane(look: Look, ui: PaneUi, model: SettingsModel, actio
         {toggle('shimmer', 's', prefs.shimmer)}
         {toggle('band', 'b', prefs.band)}
         {toggle('clip', 'c', prefs.clipOutput)}
+        {toggle('words', 'w', prefs.words)}
         <Button key="icons" label={`icons ${prefs.icons}`} hotkey="i" plain onPress={() => actions.icons()} />
       </Box>
 

@@ -30,6 +30,11 @@
       "name": "session-wrapped",
       "description": "OneWave's session-wrapped mod: /wrapped plays a Spotify-Wrapped-style session recap and saves a PNG card to ~/Desktop.",
       "source": "./plugins/session-wrapped"
+    },
+    {
+      "name": "skins",
+      "description": "Fork of hellosverre's skins mod: themed transcript rows, cards and spinner, keeping your settings.json spinnerVerbs.",
+      "source": "./plugins/skins"
     }
   ]
 }

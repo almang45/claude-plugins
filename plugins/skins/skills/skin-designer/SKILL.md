@@ -16,7 +16,8 @@ every change shows on screen the moment the call returns.
 2. Pick the built-in skin closest to what they asked for as `base`; a made skin only lists the slots
    it changes.
 3. Call `save` with a lowercase hyphenated `name`, the `base`, the changed `palette` slots, and, when
-   the mood calls for it, `spinner` gerunds and `done` past-tense words that match it.
+   the mood calls for it, `spinner` gerunds and `done` past-tense words that match it. Those words
+   only show with the `words` setting on; it is off by default so the person's own `spinnerVerbs` stay.
 4. Tell them what you changed in one line, and that `/skin` opens the settings to fine-tune it.
 
 ```json

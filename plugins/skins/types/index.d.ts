@@ -26,6 +26,8 @@ export type Prefs = {
   shimmer: boolean
   band: boolean
   clipOutput: boolean
+  // The skin's spinner and footer words; off keeps Claude Code's (settings.json spinnerVerbs).
+  words: boolean
 }
 
 // A skin someone made in the settings pane or through their agent: a built-in skin

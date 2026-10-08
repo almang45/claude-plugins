@@ -144,7 +144,7 @@ export const register: Register = on => {
     await $.command.register({
       name: 'skin',
       description: 'Open the skin settings, or /skin <name | list | off>',
-      argumentHint: '[gallery | name | list | off | rail | tables | shimmer | band | clip | icons]',
+      argumentHint: '[gallery | name | list | off | rail | tables | shimmer | band | clip | words | icons]',
       immediate: true,
     })
     await $.tool.register({
@@ -442,7 +442,7 @@ reply width: ${lastColumns} columns`
     return replyRows(lookOf(ui, active, e.surface, copy), segments, e.viewport?.columns ?? 100, e.surface !== 'terminal' && 'Svg' in ui ? ui.Svg : undefined)
   })
 
-  // The terminal's spinner gets the skin's word with a shimmer; the desktop's keeps its
+  // The terminal's spinner gets a shimmer, and the skin's word when words is on; the desktop's keeps its
   // word, which says what the step is doing, beside an animated icon.
   on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
     const active = await activeSkin($)
@@ -459,7 +459,7 @@ reply width: ${lastColumns} columns`
         : desktopSpinnerRow(look, look.svg, e.props.mode, e.props.message ?? e.props.word)
     }
 
-    const word = pick(active.skin.spinner, e.props.word) ?? e.props.word
+    const word = active.prefs.words ? (pick(active.skin.spinner, e.props.word) ?? e.props.word) : e.props.word
 
     if (!active.prefs.shimmer || e.props.message !== null) {
       return next({ ...e, props: { ...e.props, word } })
@@ -480,7 +480,7 @@ reply width: ${lastColumns} columns`
     }
 
     const turns = await read($, turnsAtom)
-    const word = pick(active.skin.done, e.props.word) ?? e.props.word
+    const word = active.prefs.words ? (pick(active.skin.done, e.props.word) ?? e.props.word) : e.props.word
 
     return footerRow(lookOf($.ui.resolve(e), active, e.surface), word, e.props.durationMs, turns[String(e.props.durationMs)])
   })
