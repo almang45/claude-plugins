@@ -50,10 +50,13 @@ Run from the target repo's root (working directory is the workspace). Background
 cd <repo-root> && agy -p "$(cat <<'EOF'
 <self-contained task prompt>
 EOF
-)" --print-timeout 10m --sandbox </dev/null > <tmp>/agy-<jobname>.log 2>&1
+)" --dangerously-skip-permissions --sandbox --print-timeout 10m --output-format json \
+  </dev/null > <tmp>/agy-<jobname>.json 2> <tmp>/agy-<jobname>.err
 ```
 
-Run anything longer than ~1 minute in the background and read the log file when it exits.
+That's the read-only shape. For a write job, launch from its isolated worktree (see the conflict rule). Keep stdout and stderr in separate files: agy writes the JSON result to stdout and its own warnings and errors to stderr, so a merged log won't parse.
+
+Run anything longer than ~1 minute in the background and read the result when it exits. In Claude Code that's the Bash tool's `run_in_background`, which re-invokes you when the job exits, so there's nothing to poll.
 
 **Timing calibration (measured in testing):** a trivial probe returns in ~10s; a full-repo review on Flash (High) took ~13 minutes and printed *nothing* until done — print mode buffers nearly all output to the end, so an empty log mid-run is normal, not a stall. Tell the user the expected window when you launch ("5–15 min, silent until done") so quiet doesn't read as stuck. Genuine-stall signature: log frozen AND near-zero CPU delta over ~10s — that means a missing flag, not a slow model.
 
@@ -63,8 +66,9 @@ Flags that matter:
 
 - `--dangerously-skip-permissions` — **required for every print-mode job that uses tools, including read-only ones.** agy's default permission mode (request-review) pauses on the first terminal command or file operation waiting for a human approval that never comes in print mode — the job silently freezes (process alive, log frozen, CPU flat). For read-only jobs pair it with `--sandbox`; for write jobs use it only inside an isolated worktree or a repo you're not touching.
 - `--sandbox` — terminal restrictions; add to all read-only jobs as the safety layer alongside skipped permissions.
-- `--print-timeout` — default is 5m; raise it (`10m`, `20m`) for big jobs or they get cut off mid-work.
-- `--model "<name>"` — recommended default is `Gemini 3.5 Flash (Medium)` for most jobs and `Gemini 3.5 Flash (High)` for meatier review/analysis: fast and strong for delegated work, and heavier "thinking" models usually aren't worth the extra latency here. Run `agy models` to see current options and swap in whatever fits your preference.
+- `--print-timeout` — as of agy 1.3.3 the default is `0s`, meaning no limit, so a wedged job never ends on its own. Always pass one (`10m`, `20m` for big jobs). When it fires, agy still exits 0 with `"status": "SUCCESS"` and an empty or partial `response`; the only sign is `[agy] print timeout after …` in stderr.
+- `--model "<name>"` — run `agy models` and pick the newest Gemini Flash: Medium for most jobs, High for meatier review/analysis. They're fast and strong for delegated work, and heavier "thinking" models usually aren't worth the extra latency here. Either column of the list works (`gemini-3.8-flash-medium` or `"Gemini 3.8 Flash (Medium)"` as of agy 1.3.3). Names roll over between releases and an unknown one fails the launch (exit 1, `"status": "ERROR"`), so don't pass one from memory.
+- `--output-format json` — stdout becomes one JSON object: `status`, `response` (the job's report), `conversation_id`, `error` on failure, `duration_seconds` and `usage`. The `conversation_id` is how you follow up on this exact job.
 - `--add-dir <path>` — grant access to extra directories (e.g. a shared docs folder) without changing the working directory.
 
 ## Writing the job prompt
@@ -80,15 +84,16 @@ The sub-agent has none of your conversation context. A good job prompt includes:
 
 Never relay or commit a sub-agent's output unverified:
 
-- **Read-only jobs**: confirm nothing changed (`git status --porcelain` should be empty), then read the log and judge the findings yourself before summarizing to the user — sub-agents produce plausible-but-wrong findings too.
+- **Check how it ended first**: exit 1 or `"status": "ERROR"` means it failed (`jq -r .error`); `[agy] print timeout` in the `.err` file means it was cut off even though the status says `SUCCESS` (see below). Otherwise `jq -r .response <tmp>/agy-<jobname>.json` is the report.
+- **Read-only jobs**: confirm nothing changed (`git status --porcelain` should be empty), then read the report and judge the findings yourself before summarizing to the user — sub-agents produce plausible-but-wrong findings too.
 - **Write jobs**: `git diff` the result, read the changed files, and run the project's typecheck/build (`npx tsc --noEmit`, `npm run build`, or the project's equivalent). A job that "completed" but fails the build is not done — fix it yourself or send a follow-up.
 - Report to the user what the sub-agent did, what you verified, and what (if anything) you corrected.
 
 ## Follow-ups and long jobs
 
-- `agy --continue -p "<follow-up>"` resumes the most recent conversation — use it to ask the same job for fixes instead of re-briefing from scratch. Caution: with several jobs in flight, "most recent" is ambiguous — after a fan-out, only use `--continue` immediately after the job you mean, or re-brief fresh.
+- `agy --conversation <conversation_id> -p "<follow-up>"` resumes that exact job, with the id taken from its JSON result. Use it to ask the same job for fixes instead of re-briefing from scratch; it stays unambiguous after a fan-out. Pass the job's flags again, since each `agy` run is a fresh process. `--continue` (`-c`) resumes only the most recent conversation, so it's safe only when a single job has run.
 - Fan out multiple *read-only* jobs in parallel freely (one background shell each, separate log files). Serialize write jobs per repo.
-- If a job times out, the log still holds partial output; raise `--print-timeout` and use `--continue` to let it finish rather than restarting.
+- If a job times out, the turn's work is lost (`response` is empty or partial) but the conversation keeps the brief: resume it with `--conversation <id>` and a higher `--print-timeout`, asking it to finish, rather than re-briefing from scratch.
 
 ## When NOT to delegate
 
