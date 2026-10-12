@@ -3,8 +3,8 @@
 Claude Code plugin. Paints the iTerm2 tab with the session's current state, so a
 wall of tabs tells you which one wants you without reading any of them.
 
-Each tab is an andon light, with the state mapping of
-[andon-light](../andon-light) (`hooks/claude-signal.sh`), so a tab and the lamp
+Each tab is an andon light, with the state mapping of andon-light's
+`hooks/claude-signal.sh` (a separate desk-lamp project), so a tab and the lamp
 on the desk always agree about what is happening.
 
 | Color  | State | Fired by |
@@ -14,7 +14,7 @@ on the desk always agree about what is happening.
 | 🟥 dark oxblood `#5a2a26` | stopped, needs you | `Notification` (filtered, below) |
 | — | color cleared | `SessionEnd` |
 
-The hues are the lamp's — `firmware/code.py` `COL`, i.e. `#ff9600` / `#00ff00` /
+The hues are the lamp's — andon-light's `firmware/code.py` `COL`, i.e. `#ff9600` / `#00ff00` /
 `#ff0000` — darkened to roughly a fifth brightness. iTerm2 gives a tab exactly
 one knob, its background color; there is no border, outline or alpha. So the way
 to be subtle is to pick a color that sits *behind* the tab title rather than
@@ -64,17 +64,20 @@ Matcher semantics matter here: Claude Code only splits on `|` when the pattern
 is plain `[a-zA-Z0-9_|]`. Add a `.` or a `*` and the whole thing becomes a
 regex, where `permission_prompt` would also match `worker_permission_prompt`.
 
-`andon-light/hooks/claude-signal.sh` has the same unmatched `Notification` wiring
+andon-light's `hooks/claude-signal.sh` has the same unmatched `Notification` wiring
 and so the same false red.
 
 ## Install
 
 ```bash
-claude plugin marketplace add ~/Workspaces/opensource/almang45-pro/tmux-iterm2-tabcolor
-claude plugin install tabcolor@tabcolor
+claude plugin marketplace add almang45/claude-plugins
+claude plugin install tabcolor@alm-plugins
 ```
 
-Or from inside a session: `/plugin marketplace add <path>` then `/plugin install tabcolor@tabcolor`.
+Or from inside a session: `/plugin marketplace add almang45/claude-plugins` then
+`/plugin install tabcolor@alm-plugins`. To try an edit, load the working copy
+from the repo root with `claude --plugin-dir ./plugins/tabcolor`; installs only
+pick up a change after `version` in `.claude-plugin/plugin.json` is bumped.
 
 ## How it reaches the tab
 

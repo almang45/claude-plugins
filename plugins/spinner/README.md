@@ -30,10 +30,14 @@ Don't also install `spinner@hoobnn-agent-mods`: both register `/spinner` and the
 /spinner random           # a Warframe theme each session (the default)
 /spinner preview khora    # eight seconds, no turn needed
 /spinner companion off    # moves the mascot from the pet row to beside the spinner verb
+/spinner stage off        # hides the scene band above the prompt (stage on restores it)
+/spinner pet              # pats the companion
+/spinner off              # all animations off (/spinner on restores them)
 ```
 
 Every upstream theme (`clawd`, `thunder`, `audio`, …) still works by name. Only
-`random` is limited to the Warframe ones.
+`random` is limited to the Warframe ones. `audio` needs macOS 14.2+, `swiftc`
+(Xcode Command Line Tools) and System Audio Recording allowed for your terminal.
 
 ## Changes from upstream
 
@@ -44,8 +48,9 @@ Every upstream theme (`clawd`, `thunder`, `audio`, …) still works by name. Onl
 - `tests/warframe.test.ts`: covers the random pool and the pets. Upstream's width test
   already covers every scene, finale and pet row.
 
-To sync with upstream, copy its `claude-code/spinner` over this folder and
-re-apply the four small edits above. `warframe.ts` relies only on the `Theme` and
+To sync with upstream, copy its `claude-code/spinner` over this folder, keep
+this README and `.claude-plugin/plugin.json` (the fork's name, version and
+Warframe `theme` options), and re-apply the four small edits above. `warframe.ts` relies only on the `Theme` and
 `PetArt` shapes and the cell and scene helpers.
 
 ## Check

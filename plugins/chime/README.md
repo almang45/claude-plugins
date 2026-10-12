@@ -3,7 +3,7 @@
 Claude Code plugin. Gives a session an audible state, so a terminal you are not
 looking at can still tell you it finished or that it is stuck.
 
-Same three states as [tabcolor](../tmux-iterm2-tabcolor), so the ear and the eye
+Same three states as [tabcolor](../tabcolor), so the ear and the eye
 never disagree. Each state is a *pool*, and the sound is drawn at random per
 fire — one fixed ding stops registering after a day, the way a fixed spinner
 verb would.
@@ -83,6 +83,8 @@ means no synthesiser latency at chime time.
 
 Files are namespaced `anime-*.aiff`, so `--clean` and re-runs never touch
 recordings you made yourself, and a pack can coexist with them in the same pool.
+Unlike speech mode, the pack does voice the working state, with one-syllable
+lines; delete `busy/anime-*` if a voice on every tool call is too much.
 The voice name is validated before anything is deleted.
 
 macOS ships 9 `ja_JP` voices. Enhanced tiers exist for **Kyoko** and **Otoya**
@@ -130,7 +132,16 @@ pool, which beats approximating a delivery you already have a recording of:
 
 Needs ffmpeg. Output is mono 22kHz, loudness-normalised to -18 LUFS so a phone
 recording does not blow past the volume tiering. Files are namespaced `clip-*`,
-so `anime-ja.sh --clean` leaves them alone.
+so `anime-ja.sh --clean` leaves them alone. Each cut fades in and out over 12ms,
+which removes the click of a cut that lands mid-waveform; `FADE=0` turns it off.
+
+To find where to cut, `packs/envelope.sh` prints the RMS level per window, so
+the silence between utterances shows up as a gap:
+
+```
+./packs/envelope.sh araara.mp4              # whole file, 0.25s windows
+./packs/envelope.sh araara.mp4 3 5 0.05     # zoom in: from, to, window
+```
 
 ## Notification is filtered
 
@@ -144,13 +155,16 @@ rather than crying wolf.
 ## Install
 
 ```
-/plugin marketplace add ~/Workspaces/opensource/almang45-pro/claude-chime
-/plugin install chime@chime
+claude plugin marketplace add almang45/claude-plugins
+claude plugin install chime@alm-plugins
 ```
 
-Installs are copied to a cache keyed by version, so after editing the source
-**bump `version` in `.claude-plugin/plugin.json`** before `/reload-plugins`, or
-the old copy keeps running.
+To try an edit, load the working copy from the repo root with
+`claude --plugin-dir ./plugins/chime`. Installs are copied to a cache keyed by
+version, so a change only reaches them once **`version` in
+`.claude-plugin/plugin.json` is bumped** and merged, then pulled with
+`claude plugin marketplace update alm-plugins` and
+`claude plugin update chime@alm-plugins`. Until then the old copy keeps running.
 
 ## Test
 
