@@ -1,0 +1,10 @@
+{
+  "name": "antigravity-agents",
+  "version": "0.1.0-alm.1",
+  "description": "Fork of markfulton's antigravity-agents skill: Claude delegates reviews, audits, research and refactors to Google Antigravity CLI (agy) sub-agents in the background, then verifies what comes back.",
+  "author": { "name": "Mark Fulton", "url": "https://markfulton.com" },
+  "license": "MIT",
+  "homepage": "https://github.com/markfulton/claude-antigravity-agents",
+  "repository": "https://github.com/markfulton/claude-antigravity-agents",
+  "keywords": ["skill", "antigravity", "agy", "gemini", "sub-agents", "delegation"]
+}
