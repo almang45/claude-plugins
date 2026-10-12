@@ -12,6 +12,7 @@ Fork of [markfulton/claude-antigravity-agents](https://github.com/markfulton/cla
 - `--model` no longer names `Gemini 3.5 Flash`, which agy 1.3.3 rejects at launch. The skill picks from `agy models` instead.
 - `--print-timeout` defaults to `0s` (no limit), not 5m. A timeout still exits 0 with status `SUCCESS`, so the skill checks stderr for it.
 - Jobs run with `--output-format json`, with stdout and stderr in separate files. Follow-ups resume the exact job with `--conversation <id>` instead of the ambiguous `--continue`.
+- `--print-timeout` doesn't stop a stalled model stream, so the skill caps wall-clock itself. A dropped connection exits 3 with status `ERROR`, but `response` can still hold the whole report.
 
 ## Install
 
@@ -29,6 +30,6 @@ Don't also copy upstream's `antigravity-agents` folder into `~/.claude/skills/`,
 | --- | --- | --- | --- | --- | --- |
 | antigravity-agents | Through `agy` | `agy` | Write jobs edit the worktree they run in | Gemini, or whatever `--model` names, via Antigravity | Job prompts and the files a job reads go to Google |
 
-The plugin is only a skill, a page of instructions with no hooks or code. Everything in the table happens when Claude follows it and runs `agy`. Read-only jobs run with `--sandbox`. Write jobs run with `--dangerously-skip-permissions`, only in an isolated git worktree or a repo Claude isn't editing. Never put secrets in a job prompt.
+The plugin is only a skill, a page of instructions with no hooks or code. Everything in the table happens when Claude follows it and runs `agy`. Every job that uses tools needs `--dangerously-skip-permissions`; read-only jobs pair it with `--sandbox`, and write jobs run only in an isolated git worktree or a repo Claude isn't editing. Never put secrets in a job prompt.
 
 Skill by [Mark Fulton](https://markfulton.com). MIT licensed.
