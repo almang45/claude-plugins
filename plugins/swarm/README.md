@@ -2,7 +2,7 @@
 
 Mission control for subagents and agent teams: who is running, what each is doing, who spawned whom, who is talking to whom, and how they overlap.
 
-`/swarm` opens a live pane with an orchestration tree (lead at the top, every subagent nested under whoever spawned it, with its type, model, current action and tool-call count), a timeline of how the agents overlap, arcs and a log for messages between agents, and an activity feed. A status line shows the live count while agents run, and a toast sums things up when the swarm stands down.
+`/swarm` opens a live pane with an orchestration tree (lead at the top, every subagent nested under whoever spawned it, with its type, model, current action and tool-call count), a timeline of how the agents overlap, arcs and a log for messages between agents, and an activity feed. In the pane, `r` refreshes and `c` clears finished agents. A status line shows the live count while agents run, and a toast sums things up when the swarm stands down.
 
 ## Install
 
@@ -12,7 +12,7 @@ Vendored from [OneWave-AI/claude-code-mods](https://github.com/OneWave-AI/claude
 claude plugin install swarm@alm-plugins
 ```
 
-Or load this folder for one session: `claude --plugin-dir ./swarm`
+Or load this folder for one session, from the repo root: `claude --plugin-dir ./plugins/swarm`
 
 ## What it reaches
 
@@ -20,6 +20,6 @@ Or load this folder for one session: `claude --plugin-dir ./swarm`
 | --- | --- | --- | --- | --- | --- |
 | swarm | No | No | No | No | No |
 
-It reads agent state through `$.agent.list` and the `agent.spawn`, `tool.call`, `session.send` and `session.receive` events. Run `claude plugin validate ./swarm` to list every event it hooks and every call it makes. See the [upstream README](https://github.com/OneWave-AI/claude-code-mods#security) for the full security notes.
+It reads agent state through `$.agent.list` and the `agent.spawn`, `tool.call`, `session.send` and `session.receive` events. Run `claude plugin validate plugins/swarm` to list every event it hooks and every call it makes, and `claude plugin test plugins/swarm` for its tests. See the [upstream README](https://github.com/OneWave-AI/claude-code-mods#security) for the full security notes.
 
 Part of [claude-code-mods](https://github.com/OneWave-AI/claude-code-mods) by [OneWave AI](https://www.onewave-ai.com). MIT licensed.

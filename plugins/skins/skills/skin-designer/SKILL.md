@@ -49,3 +49,5 @@ every change shows on screen the moment the call returns.
 - `{"action": "delete", "name": "sunset"}` removes a made skin.
 - `{"action": "settings", "settings": {"rail": false, "shimmer": true, "tables": true, "clip": false, "icons": "ascii"}}`
   switches the parts on and off. `icons: "ascii"` helps terminals whose font lacks the glyphs.
+  `band` is the meter band above the prompt. `words: true` puts the skin's `spinner` and `done`
+  words in place of the person's own `spinnerVerbs`, so set it only when they ask for that.

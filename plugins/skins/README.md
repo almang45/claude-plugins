@@ -47,7 +47,8 @@ their own, so they sit in the page. On a light Claude Code theme every skin swit
 - **`/skin gallery`** shows every element the skin draws, numbered, to point at when you want one changed.
 - **Ask your agent.** The mod gives Claude a `design` tool and a short guide, so "make me a skin that
   feels like a sunset" builds one and applies it while you watch.
-- **`/skin <name>`**, `/skin list`, `/skin off`, and `/skin rail|tables|shimmer|band|clip|words on|off` for quick switches.
+- **`/skin <name>`**, `/skin list`, `/skin off|on`, `/skin icons unicode|ascii`, and
+  `/skin rail|tables|shimmer|band|clip|words on|off` for quick switches.
 
 Your choices are remembered across sessions.
 
@@ -59,7 +60,7 @@ compacts only when you press Compact, and copies only when you press Copy. It st
 Check it yourself:
 
 ```bash
-claude plugin validate .
+claude plugin validate plugins/skins
 ```
 
 ## Add a built-in skin
@@ -68,17 +69,17 @@ A skin is one file. Copy `hooks/themes/nord.ts`, change the colours and words, t
 `hooks/themes/index.ts`.
 
 ```bash
-claude plugin test
+claude plugin test plugins/skins
 ```
 
 ## Develop
 
 ```bash
-claude --plugin-dir .
+claude --plugin-dir ./plugins/skins
 ```
 
 Saving a file reloads the mod in the running session. `/plugin-types` writes the type declarations
-into `.claude/types` for your editor. `npx tsx scripts/previews.ts` redraws the README previews.
+into `.claude/types` for your editor.
 
 ## License
 
