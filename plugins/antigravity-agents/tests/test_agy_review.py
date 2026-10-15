@@ -1,6 +1,6 @@
 """Tests for agy_review.py against a stub agy and gh, in throwaway git repos.
 
-Run: python3 -I plugins/agy-review/tests/test_agy_review.py
+Run: python3 -I plugins/antigravity-agents/tests/test_agy_review.py
 Nothing reaches the real agy, GitHub or your git config.
 """
 

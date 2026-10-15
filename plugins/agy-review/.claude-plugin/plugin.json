@@ -1,9 +1,0 @@
-{
-  "name": "agy-review",
-  "version": "0.1.0",
-  "description": "Code review by Google Antigravity CLI (agy) sub-agents: Gemini at high effort reviews a branch, PR, range or files in parallel lenses, and Claude verifies every finding before reporting it.",
-  "author": {
-    "name": "almang45"
-  },
-  "keywords": ["skill", "code-review", "antigravity", "agy", "gemini", "sub-agents"]
-}
