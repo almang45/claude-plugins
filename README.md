@@ -1,10 +1,10 @@
 # alm-plugins
 
 Claude Code plugins: session state you can hear and see from another tab, animated and
-themed transcripts, live views of subagents and a session recap, and delegation to
-Google Antigravity sub-agents. chime and tabcolor are the owner's own; the rest are
-forks or vendored copies of other authors' mods, each with its changes listed in its
-README.
+themed transcripts, live views of subagents and a session recap, and delegation and code review through
+Google Antigravity sub-agents. chime, tabcolor and agy-review are the owner's own; the
+rest are forks or vendored copies of other authors' mods, each with its changes listed in
+its README.
 
 | Plugin | Version | Kind | What it does | Upstream |
 |---|---|---|---|---|
@@ -15,6 +15,7 @@ README.
 | [session-wrapped](plugins/session-wrapped) | 0.1.0-alm.1 | mod | `/wrapped`: an animated session recap and a PNG card | [OneWave AI](https://github.com/OneWave-AI/claude-code-mods/tree/main/session-wrapped) |
 | [skins](plugins/skins) | 0.1.1-alm.2 | mod | Themed tool rows, cards and spinner that keep your `spinnerVerbs` | [hellosverre](https://github.com/hellosverre/claude-skins) |
 | [antigravity-agents](plugins/antigravity-agents) | 0.1.0-alm.2 | skill | Delegates reviews, audits and research to `agy` sub-agents | [markfulton](https://github.com/markfulton/claude-antigravity-agents) |
+| [agy-review](plugins/agy-review) | 0.1.0 | skill | Code review by parallel `agy` sub-agents on Gemini at high effort, verified by Claude | — |
 
 ## Install
 
@@ -31,7 +32,8 @@ claude plugin update <plugin>@alm-plugins     # then restart the session
 ```
 
 chime and tabcolor are macOS-only. swarm, session-wrapped and skins need Claude Code
-2.1.287 or later.
+2.1.287 or later. antigravity-agents and agy-review need a signed-in `agy`, and
+agy-review also needs `python3` 3.9 or later.
 
 ## Develop
 
@@ -45,6 +47,7 @@ claude plugin test plugins/<plugin>          # spinner, swarm, session-wrapped, 
 ./plugins/chime/test.sh
 ./plugins/tabcolor/test.sh
 python3 -I plugins/session-wrapped/tests/test_usage.py
+python3 -I plugins/agy-review/tests/test_agy_review.py
 ```
 
 Installed copies are cached by `version` in `plugins/<plugin>/.claude-plugin/plugin.json`,
@@ -54,5 +57,5 @@ conventions.
 ## License
 
 spinner, swarm, session-wrapped, skins and antigravity-agents are MIT, under their
-authors' copyright, with the license in each folder. chime and tabcolor carry no license
-file.
+authors' copyright, with the license in each folder. chime, tabcolor and agy-review carry
+no license file.

@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "agy-review lens result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "findings"],
+  "properties": {
+    "summary": {
+      "type": "string",
+      "description": "One or two sentences: the verdict for this lens."
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "file",
+          "line",
+          "severity",
+          "category",
+          "title",
+          "failure_scenario",
+          "evidence",
+          "suggested_fix",
+          "confidence"
+        ],
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Path relative to the repository root."
+          },
+          "line": {
+            "type": "integer",
+            "description": "Line in the new version of the file; for deleted code, the nearest remaining line."
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["critical", "high", "medium", "low"]
+          },
+          "category": {
+            "type": "string",
+            "description": "Short kebab-case slug, such as sql-injection, race-condition or missing-timeout."
+          },
+          "title": {
+            "type": "string",
+            "description": "The defect in one line, at most 80 characters."
+          },
+          "failure_scenario": {
+            "type": "string",
+            "description": "The concrete input or state, and the wrong outcome it produces."
+          },
+          "evidence": {
+            "type": "string",
+            "description": "The code and call path that prove it, with file:line references."
+          },
+          "suggested_fix": {
+            "type": "string",
+            "description": "The smallest change that removes the defect."
+          },
+          "confidence": {
+            "type": "number",
+            "description": "0.0 to 1.0: how sure you are that this is a real defect."
+          }
+        }
+      }
+    }
+  }
+}

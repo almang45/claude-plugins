@@ -40,6 +40,11 @@
       "name": "antigravity-agents",
       "description": "Fork of markfulton's antigravity-agents skill: Claude delegates reviews, audits, research and refactors to Google Antigravity CLI (agy) sub-agents in the background, then verifies what comes back.",
       "source": "./plugins/antigravity-agents"
+    },
+    {
+      "name": "agy-review",
+      "description": "Code review by Google Antigravity CLI (agy) sub-agents: Gemini at high effort reviews a branch, PR, range or files in parallel lenses, and Claude verifies every finding before reporting it.",
+      "source": "./plugins/agy-review"
     }
   ]
 }

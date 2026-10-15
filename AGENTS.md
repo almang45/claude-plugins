@@ -17,6 +17,7 @@ claude plugin test plugins/<name>            # TS mods: spinner, swarm, session-
 ./plugins/chime/test.sh                      # stubs afplay/say, never makes a sound
 ./plugins/tabcolor/test.sh                   # writes to a temp file, never repaints a tab
 python3 -I plugins/session-wrapped/tests/test_usage.py
+python3 -I plugins/agy-review/tests/test_agy_review.py   # stub agy and gh, temp repos
 claude --plugin-dir ./plugins/<name>         # load the working copy for one session
 ```
 
@@ -27,7 +28,9 @@ claude --plugin-dir ./plugins/<name>         # load the working copy for one ses
 - **TS mods** (spinner, swarm, session-wrapped, skins): `hooks/hooks.json` is
   `{"modules": ["./register.tsx"]}`. Tests in `tests/*.test.ts(x)` import `claude-code/testing`.
   There is no package.json; `claude plugin test` is the runner.
-- **Skill** (antigravity-agents): `skills/antigravity-agents/SKILL.md` only.
+- **Skills** (antigravity-agents, agy-review): `skills/<name>/SKILL.md`. agy-review's
+  SKILL.md drives `scripts/agy_review.py`, which owns every agy flag; prompts live in
+  `brief.md` and `lenses/*.md`, the output contract in `findings.schema.json`.
 
 ## Rules
 
@@ -45,6 +48,8 @@ claude --plugin-dir ./plugins/<name>         # load the working copy for one ses
   what this repo needs, and record it in that plugin's README so an upstream sync can
   re-apply it. A diverged copy gets a version suffix (`-alm.N`, `-warframe.N`); swarm is
   unmodified and has none.
+- Python helpers are stdlib-only and must run on macOS `/usr/bin/python3` 3.9; call them
+  with `python3 -I`.
 - Bash hooks and tests must run on macOS `/bin/bash` 3.2: no associative arrays, namerefs,
   `${var,,}` or `mapfile`.
 - Hooks fail silently: exit 0, nothing on stderr. Hook stderr surfaces in the session.
