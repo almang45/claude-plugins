@@ -1,6 +1,6 @@
 ---
-name: agy-review
-description: Code review by Google Antigravity CLI (agy) sub-agents running Gemini at high reasoning effort. Fans the review of the current branch, a PR, a commit range or a set of files out to parallel read-only agy jobs, one per lens (correctness, security, reliability, conventions), then verifies every finding against the code before reporting. Use when the user asks for an agy, Antigravity or Gemini code review, wants a second-opinion review from a model other than Claude, or runs /antigravity-agents:agy-review.
+name: review
+description: Code review by Google Antigravity CLI (agy) sub-agents running Gemini at high reasoning effort. Fans the review of the current branch, a PR, a commit range or a set of files out to parallel read-only agy jobs, one per lens (correctness, security, reliability, conventions), then verifies every finding against the code before reporting. Use when the user asks for an agy, Antigravity or Gemini code review, wants a second-opinion review from a model other than Claude, or runs /antigravity-agents:review.
 argument-hint: "[<base-rev> | <a>..<b> | pr:<n> | --paths <file>...] [--lenses a,b] [--effort high]"
 ---
 

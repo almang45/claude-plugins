@@ -14,7 +14,7 @@ its README.
 | [swarm](plugins/swarm) | 0.1.0 | mod | `/swarm`: a live map of subagents and agent teams | [OneWave AI](https://github.com/OneWave-AI/claude-code-mods/tree/main/swarm) |
 | [session-wrapped](plugins/session-wrapped) | 0.1.0-alm.1 | mod | `/wrapped`: an animated session recap and a PNG card | [OneWave AI](https://github.com/OneWave-AI/claude-code-mods/tree/main/session-wrapped) |
 | [skins](plugins/skins) | 0.1.1-alm.2 | mod | Themed tool rows, cards and spinner that keep your `spinnerVerbs` | [hellosverre](https://github.com/hellosverre/claude-skins) |
-| [antigravity-agents](plugins/antigravity-agents) | 0.1.0-alm.3 | skills | Delegates audits and research to `agy` sub-agents; `agy-review` runs a parallel Gemini code review that Claude verifies | [markfulton](https://github.com/markfulton/claude-antigravity-agents) |
+| [antigravity-agents](plugins/antigravity-agents) | 0.1.0-alm.3 | skills | Delegates audits and research to `agy` sub-agents; `/antigravity-agents:review` runs a parallel Gemini code review that Claude verifies | [markfulton](https://github.com/markfulton/claude-antigravity-agents) |
 
 ## Install
 
@@ -31,7 +31,7 @@ claude plugin update <plugin>@alm-plugins     # then restart the session
 ```
 
 chime and tabcolor are macOS-only. swarm, session-wrapped and skins need Claude Code
-2.1.287 or later. antigravity-agents needs a signed-in `agy`, and its agy-review skill
+2.1.287 or later. antigravity-agents needs a signed-in `agy`, and its review skill
 also needs `python3` 3.9 or later.
 
 ## Develop
@@ -56,5 +56,5 @@ conventions.
 ## License
 
 spinner, swarm, session-wrapped, skins and antigravity-agents are MIT, under their
-authors' copyright, with the license in each folder. antigravity-agents' agy-review skill
+authors' copyright, with the license in each folder. antigravity-agents' review skill
 was added in this repo. chime and tabcolor carry no license file.

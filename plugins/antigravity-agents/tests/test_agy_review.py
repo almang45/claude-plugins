@@ -20,8 +20,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 HERE = Path(__file__).resolve().parent
-SCRIPT = HERE.parent / "skills" / "agy-review" / "scripts" / "agy_review.py"
-SCHEMA = HERE.parent / "skills" / "agy-review" / "findings.schema.json"
+SCRIPT = HERE.parent / "skills" / "review" / "scripts" / "agy_review.py"
+SCHEMA = HERE.parent / "skills" / "review" / "findings.schema.json"
 
 AGY_STUB = r'''#!/usr/bin/env python3
 import json, os, sys, time
