@@ -45,6 +45,8 @@ DEFAULT_TIMEOUT_MIN = 20.0
 # agy's --print-timeout does not end a stalled model stream, so the job is killed after this.
 WATCHDOG_GRACE_S = float(os.environ.get("AGY_REVIEW_GRACE_S", "120"))
 UNTRACKED_MAX_BYTES = 256 * 1024
+# gh and git fetch talk to GitHub; a stalled connection must not hang scope forever.
+NETWORK_TIMEOUT_S = 180.0
 LARGE_DIFF_BYTES = 1_500_000
 NOISE = (
     "package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb",
@@ -135,13 +137,17 @@ def run_proc(
     return proc
 
 
-def git_bytes(repo: Path, *args: str, ok_codes: Sequence[int] = (0,)) -> bytes:
+def git_bytes(
+    repo: Path, *args: str, ok_codes: Sequence[int] = (0,), timeout: Optional[float] = None
+) -> bytes:
     # No optional locks: concurrent agy jobs may run git in the same tree.
-    return run_proc(["git", "--no-optional-locks", "-C", str(repo), *args], ok_codes=ok_codes).stdout
+    return run_proc(
+        ["git", "--no-optional-locks", "-C", str(repo), *args], ok_codes=ok_codes, timeout=timeout
+    ).stdout
 
 
-def git(repo: Path, *args: str, ok_codes: Sequence[int] = (0,)) -> str:
-    return git_bytes(repo, *args, ok_codes=ok_codes).decode(errors="replace")
+def git(repo: Path, *args: str, ok_codes: Sequence[int] = (0,), timeout: Optional[float] = None) -> str:
+    return git_bytes(repo, *args, ok_codes=ok_codes, timeout=timeout).decode(errors="replace")
 
 
 def rev_parse(repo: Path, rev: str) -> Optional[str]:
@@ -239,18 +245,27 @@ def change_for_branch(repo: Path, base_rev: Optional[str], untracked: bool, all_
 def add_untracked(repo: Path, change: Change, all_files: bool) -> None:
     for rel in untracked_files(repo):
         path = repo / rel
-        if (not all_files and is_noise(rel)) or not path.is_file():
+        if not all_files and is_noise(rel):
             continue
-        if path.stat().st_size > UNTRACKED_MAX_BYTES:
-            change.skipped.append(f"{rel} (untracked, over {UNTRACKED_MAX_BYTES // 1024} KiB)")
+        try:
+            if not path.is_file():
+                continue
+            if path.stat().st_size > UNTRACKED_MAX_BYTES:
+                change.skipped.append(f"{rel} (untracked, over {UNTRACKED_MAX_BYTES // 1024} KiB)")
+                continue
+            with path.open("rb") as handle:
+                lines = sum(1 for _ in handle)
+            patch = run_proc(
+                ["git", "-C", str(repo), "diff", *DIFF_OPTS, "--no-index", "--", "/dev/null", rel], ok_codes=(0, 1)
+            ).stdout
+        except (OSError, ReviewError) as exc:
+            # A build or watcher can delete an untracked file between ls-files and here.
+            change.skipped.append(f"{rel} (untracked, unreadable: {exc})")
             continue
-        change.patch += run_proc(
-            ["git", "-C", str(repo), "diff", *DIFF_OPTS, "--no-index", "--", "/dev/null", rel], ok_codes=(0, 1)
-        ).stdout
+        change.patch += patch
         change.untracked.append(rel)
         change.files.append(rel)
-        with path.open("rb") as handle:
-            change.added += sum(1 for _ in handle)
+        change.added += lines
 
 
 def change_for_range(repo: Path, target: str, job_dir: Path, all_files: bool) -> Change:
@@ -271,19 +286,25 @@ def change_for_range(repo: Path, target: str, job_dir: Path, all_files: bool) ->
 
 def change_for_pr(repo: Path, number: int, job_dir: Path, all_files: bool) -> Change:
     view = run_proc(
-        ["gh", "pr", "view", str(number), "--json", "number,title,url,headRefOid,baseRefName"], cwd=repo
+        ["gh", "pr", "view", str(number), "--json", "number,title,url,headRefOid,baseRefName"],
+        cwd=repo, timeout=NETWORK_TIMEOUT_S,
     ).stdout
     info: Dict[str, Any] = json.loads(view)
-    git(repo, "fetch", "--quiet", "--no-tags", "origin", f"pull/{number}/head")
+    git(repo, "fetch", "--quiet", "--no-tags", "origin", f"pull/{number}/head", timeout=NETWORK_TIMEOUT_S)
     head_sha = require_rev(repo, "FETCH_HEAD")
-    git(repo, "fetch", "--quiet", "--no-tags", "origin", str(info["baseRefName"]))
+    if head_sha != info.get("headRefOid"):
+        # gh can resolve the number against an upstream while origin is a fork, which would review the wrong code.
+        raise ReviewError(
+            f"origin's pull/{number}/head is {head_sha[:12]} but GitHub reports {str(info.get('headRefOid'))[:12]}; "
+            "if origin is not the PR's repository, fetch the PR yourself and review a <base>...<head> range"
+        )
+    git(repo, "fetch", "--quiet", "--no-tags", "origin", str(info["baseRefName"]), timeout=NETWORK_TIMEOUT_S)
     merge_base = git(repo, "merge-base", require_rev(repo, "FETCH_HEAD"), head_sha).strip()
     patch, files, added, deleted = tracked_diff(repo, merge_base, head_sha, all_files)
     root, worktree = checkout_for(repo, head_sha, job_dir)
-    stale = "" if head_sha == info.get("headRefOid") else " (GitHub reports a newer head; re-run scope to pick it up)"
     return Change(
         mode="pr",
-        description=f"PR #{number} \"{info.get('title', '')}\" into {info['baseRefName']}, {info.get('url', '')}{stale}",
+        description=f"PR #{number} \"{info.get('title', '')}\" into {info['baseRefName']}, {info.get('url', '')}",
         root=root, worktree=worktree, patch=patch, files=files, added=added, deleted=deleted,
         base=merge_base, head=head_sha,
     )
@@ -486,9 +507,14 @@ def new_job_dir(requested: Optional[str], repo: Path) -> Path:
             raise ReviewError(f"job dir {path} is not empty")
         path.mkdir(parents=True, exist_ok=True)
         return path
-    parent = Path(os.environ.get("AGY_REVIEW_HOME") or tempfile.gettempdir()) / "agy-review"
-    parent.mkdir(parents=True, exist_ok=True)
-    return Path(tempfile.mkdtemp(prefix=f"{repo.name}-", dir=parent)).resolve()
+    home = os.environ.get("AGY_REVIEW_HOME")
+    if home:
+        parent, prefix = Path(home), f"{repo.name}-"
+        parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    else:
+        # Not a shared /tmp/agy-review parent: another local user could pre-create it and block or swap job dirs.
+        parent, prefix = Path(tempfile.gettempdir()), f"agy-review-{repo.name}-"
+    return Path(tempfile.mkdtemp(prefix=prefix, dir=parent)).resolve()
 
 
 # --- subcommands -----------------------------------------------------------------------------
@@ -627,7 +653,10 @@ def classify(structured: Any, data: Dict[str, Any], timed_out: bool) -> str:
         return "ok"
     if timed_out:
         return "timeout"
-    return "unstructured" if str(data.get("response") or "").strip() else "error"
+    # A network error can leave partial prose behind; only a finished turn counts as an answer.
+    if data.get("status") == "SUCCESS" and str(data.get("response") or "").strip():
+        return "unstructured"
+    return "error"
 
 
 def archive_attempt(out: Path, lens: str, attempt: int) -> None:
@@ -793,7 +822,7 @@ def build_parser() -> argparse.ArgumentParser:
     scope.add_argument("--model", help="agy model; default: the newest Gemini offering the effort")
     scope.add_argument("--effort", choices=EFFORTS, help=f"reasoning effort (default {DEFAULT_EFFORT})")
     scope.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT_MIN, help="minutes per lens job")
-    scope.add_argument("--job-dir", help="where to keep the job (default: a new folder under $TMPDIR/agy-review)")
+    scope.add_argument("--job-dir", help="where to keep the job (default: a new agy-review-<repo>-* folder in $TMPDIR)")
     scope.add_argument("--no-untracked", action="store_true", help="leave untracked files out of a branch review")
     scope.add_argument("--all-files", action="store_true", help="keep lockfiles, minified and map files in the diff")
     scope.set_defaults(func=cmd_scope)

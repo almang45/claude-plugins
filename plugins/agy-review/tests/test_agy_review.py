@@ -48,6 +48,10 @@ if mode == "timeout":
 if mode == "prose":
     print(json.dumps({"conversation_id": conv, "status": "SUCCESS", "response": "app.py:3 divides by zero"}))
     sys.exit(0)
+if mode == "neterror":
+    print("network timeout", file=sys.stderr)
+    print(json.dumps({"conversation_id": conv, "status": "ERROR", "response": "app.py:3 div", "error": "network"}))
+    sys.exit(3)
 findings = json.loads(os.environ.get("STUB_FINDINGS", "[]"))
 print(json.dumps({"conversation_id": conv, "status": "SUCCESS", "response": "done",
                   "structured_output": {"summary": "checked", "findings": findings}}))
@@ -211,7 +215,36 @@ class ScopeTest(unittest.TestCase):
         code, out = self.box.cli("scope")
         self.assertEqual(code, 1)
         self.assertIn("nothing to review", out["error"])
-        self.assertEqual(list((self.box.home / "agy-review").iterdir()), [])
+        self.assertEqual(list(self.box.home.iterdir()), [])
+
+    def test_default_job_dir_sits_directly_in_the_temp_dir(self) -> None:
+        self.box.dirty()
+        tmpdir = self.box.tmp / "t"
+        tmpdir.mkdir()
+        env = {k: v for k, v in self.box.env.items() if k != "AGY_REVIEW_HOME"}
+        proc = subprocess.run(
+            [sys.executable, "-I", str(SCRIPT), "scope"], cwd=self.box.repo, env={**env, "TMPDIR": str(tmpdir)},
+            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        job = Path(json.loads(proc.stdout)["job_dir"])
+        self.assertEqual(job.parent, tmpdir.resolve())
+        self.assertTrue(job.name.startswith("agy-review-repo-"))
+        self.assertEqual(job.stat().st_mode & 0o777, 0o700)
+
+    def test_untracked_files_that_vanish_or_cannot_be_read_are_skipped(self) -> None:
+        module = load_module()
+        module.untracked_files = lambda repo: ["gone.py", "locked.py", "ok.py"]
+        locked = self.box.repo / "locked.py"
+        locked.write_text("secret = 1\n")
+        locked.chmod(0)
+        self.addCleanup(locked.chmod, 0o644)
+        (self.box.repo / "ok.py").write_text("ok = 1\n")
+        change = module.Change(mode="branch", description="", root=self.box.repo, patch=b"", files=[], added=0, deleted=0)
+        module.add_untracked(self.box.repo, change, False)
+        self.assertEqual((change.files, change.added), (["ok.py"], 1))
+        [skipped] = change.skipped
+        self.assertTrue(skipped.startswith("locked.py (untracked, unreadable:"), skipped)
 
     def test_range_on_another_head_reviews_a_worktree_that_cleanup_removes(self) -> None:
         self.box.dirty()
@@ -239,9 +272,15 @@ class ScopeTest(unittest.TestCase):
         self.assertEqual(code, 0, out)
         self.assertEqual(out["mode"], "pr")
         self.assertIn('PR #7 "Add division" into main', out["description"])
-        self.assertNotIn("newer head", out["description"])
         self.assertEqual(self.box.git(Path(out["root"]), "rev-parse", "HEAD").strip(), self.box.feature)
         self.box.cli("cleanup", out["job_dir"])
+
+    def test_pr_head_that_does_not_match_github_is_refused(self) -> None:
+        self.box.git(self.box.repo, "push", "--quiet", "origin", f"{self.box.feature}:refs/pull/7/head")
+        code, out = self.box.cli("scope", "pr:7", STUB_PR_HEAD="0" * 40)
+        self.assertEqual(code, 1)
+        self.assertIn("but GitHub reports 000000000000", out["error"])
+        self.assertEqual(list(self.box.home.iterdir()), [])
 
     def test_paths_review_whole_files(self) -> None:
         code, out = self.box.cli("scope", "--paths", "app.py")
@@ -333,6 +372,11 @@ class RunTest(unittest.TestCase):
         code, out = self.box.cli("run", self.job, "all", STUB_MODE="prose")
         self.assertEqual((code, out["status"]), (2, "unstructured"), out)
         self.assertEqual(out["response"], "app.py:3 divides by zero")
+
+    def test_network_error_with_partial_prose_is_an_error_to_resume(self) -> None:
+        code, out = self.box.cli("run", self.job, "all", STUB_MODE="neterror")
+        self.assertEqual((code, out["status"], out["agy_exit"]), (2, "error", 3), out)
+        self.assertEqual(out["error"], "network")
 
 
 class ReportTest(unittest.TestCase):

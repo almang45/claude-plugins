@@ -45,7 +45,8 @@ Ask for it by name, for example "agy review this branch", "get a Gemini review o
 
 A change under 150 lines gets one job that covers every lens. A larger one gets four jobs:
 correctness, security, reliability and conventions. Each job takes 5 to 20 minutes at high
-effort and prints nothing until it finishes.
+effort and prints nothing until it finishes. Reviewing this plugin's own 1,600-line first
+commit took four jobs about 8 minutes each, run in parallel.
 
 You get a verdict and the findings Claude confirmed or found plausible, ranked by severity,
 with `file:line`, the failure scenario and a fix. You also get the number of findings it
@@ -58,7 +59,7 @@ JSON:
 
 | Step | What it does |
 |---|---|
-| `scope [target]` | Resolves the target and writes `input/diff.patch` and `input/files.txt` to a job directory under `$TMPDIR/agy-review/`. Lockfiles, minified and map files stay out unless you pass `--all-files`. Picks the newest Gemini that offers the effort from `agy models`, which also checks that you are signed in. |
+| `scope [target]` | Resolves the target and writes `input/diff.patch` and `input/files.txt` to a new private job directory, `$TMPDIR/agy-review-<repo>-*`. For a PR, it refuses to go on if the head it fetched from `origin` doesn't match the head GitHub reports, as happens when `origin` is a fork. Lockfiles, minified and map files stay out unless you pass `--all-files`. Picks the newest Gemini that offers the effort from `agy models`, which also checks that you are signed in. |
 | `run <job> <lens>` | Runs `agy -p` with `--model`, `--effort`, `--json-schema findings.schema.json`, `--sandbox`, `--dangerously-skip-permissions`, `--disable-slash-commands`, a print timeout and stdin closed. A watchdog kills the job's process group 2 minutes after the print timeout, because agy's own timeout misses a stalled model stream. It also fingerprints the review root before and after, so an edit made by a job shows up as `tree_changed`. |
 | `run ... --resume` | Continues the lens's agy conversation after a timeout or network error. |
 | `report <job>` | Merges the lenses, ranks the findings by severity and confidence, and folds findings that sit at the same spot. |
@@ -80,6 +81,10 @@ Environment overrides: `AGY_BIN`, `AGY_REVIEW_MODEL`, `AGY_REVIEW_EFFORT`, `AGY_
   inside the job directory.
 - In Claude Code's auto mode, the permission classifier may stop the `run` commands because they
   start agents with permissions skipped. Approve them, or add an allow rule for them.
+- A PR from someone you don't trust can carry instructions aimed at the reviewing agent, and
+  agy runs with its prompts skipped. The sandbox limits the commands it can run, but don't
+  review such PRs on a machine that holds credentials you care about. Read the findings as
+  claims to check, not as instructions.
 - The diff and the brief go to Google through agy. Don't run it on code you may not send there.
 
 ## Test
