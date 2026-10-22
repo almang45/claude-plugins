@@ -13,7 +13,7 @@ README.
 | [spinner](plugins/spinner) | 0.6.0-warframe.1 | mod | Pixel scenes, a mascot and a companion pet, with six Warframe themes | [hoobnn](https://github.com/hoobnn/hoobnn-agent-mods/tree/main/claude-code/spinner) |
 | [swarm](plugins/swarm) | 0.1.0 | mod | `/swarm`: a live map of subagents and agent teams | [OneWave AI](https://github.com/OneWave-AI/claude-code-mods/tree/main/swarm) |
 | [session-wrapped](plugins/session-wrapped) | 0.1.0-alm.1 | mod | `/wrapped`: an animated session recap and a PNG card | [OneWave AI](https://github.com/OneWave-AI/claude-code-mods/tree/main/session-wrapped) |
-| [skins](plugins/skins) | 0.1.1-alm.2 | mod | Themed tool rows, cards and spinner that keep your `spinnerVerbs` | [hellosverre](https://github.com/hellosverre/claude-skins) |
+| [skins](plugins/skins) | 0.1.1-alm.3 | mod | Themed tool rows, cards and spinner that keep your `spinnerVerbs` | [hellosverre](https://github.com/hellosverre/claude-skins) |
 | [antigravity-agents](plugins/antigravity-agents) | 0.1.0-alm.2 | skill | Delegates reviews, audits and research to `agy` sub-agents | [markfulton](https://github.com/markfulton/claude-antigravity-agents) |
 
 ## Install

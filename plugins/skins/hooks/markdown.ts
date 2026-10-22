@@ -167,21 +167,52 @@ const cutTo = (text: string, width: number): string => {
   return `${kept}…`
 }
 
-// Natural column widths, narrowed from the widest down until the table fits.
+// Each column's widest cell, header included, in terminal cells.
+export function naturalWidths(table: Table): number[] {
+  return table.header.map((cell, col) => Math.max(widthOf(cell), ...table.rows.map(row => widthOf(row[col] ?? ''))))
+}
+
+// The narrowest a column that wraps may get.
+const MIN_WRAP = 3
+
+// Column widths that fit `maxWidth`. Columns narrower than an even share keep their natural
+// width; the rest split what is left by the square root of their natural width, so a long
+// prose column gets more room than a medium one without starving it, and wrap inside it.
 export function columnWidths(table: Table, maxWidth: number, gap: number): number[] {
-  const widths = table.header.map((cell, col) =>
-    Math.max(widthOf(cell), ...table.rows.map(row => widthOf(row[col] ?? ''))),
-  )
-  const budget = maxWidth - gap * (widths.length - 1)
+  const natural = naturalWidths(table)
+  const widths = [...natural]
+  let budget = maxWidth - gap * (natural.length - 1)
+  let open = natural.map((_, col) => col)
 
-  while (widths.reduce((sum, width) => sum + width, 0) > budget) {
-    const widest = widths.indexOf(Math.max(...widths))
+  for (;;) {
+    const share = budget / Math.max(1, open.length)
+    const fitting = open.filter(col => (natural[col] ?? 0) <= share)
 
-    if ((widths[widest] ?? 0) <= 3) {
+    if (fitting.length === 0 || fitting.length === open.length) {
       break
     }
 
-    widths[widest] = (widths[widest] ?? 0) - 1
+    budget -= fitting.reduce((sum, col) => sum + (natural[col] ?? 0), 0)
+    open = open.filter(col => !fitting.includes(col))
+  }
+
+  if (open.reduce((sum, col) => sum + (natural[col] ?? 0), 0) <= budget) {
+    return widths
+  }
+
+  const weight = (col: number) => Math.sqrt(natural[col] ?? 0)
+  const total = open.reduce((sum, col) => sum + weight(col), 0)
+
+  for (const col of open) {
+    widths[col] = Math.max(MIN_WRAP, Math.min(natural[col] ?? 0, Math.floor((budget * weight(col)) / total)))
+  }
+
+  // Rounding leaves a few cells over; the widest open column takes them.
+  const spare = budget - open.reduce((sum, col) => sum + (widths[col] ?? 0), 0)
+  const widest = open.reduce((best, col) => ((natural[col] ?? 0) > (natural[best] ?? 0) ? col : best), open[0] ?? 0)
+
+  if (spare > 0) {
+    widths[widest] = Math.min(natural[widest] ?? 0, (widths[widest] ?? 0) + spare)
   }
 
   return widths

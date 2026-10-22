@@ -1,6 +1,6 @@
 {
   "name": "skins",
-  "version": "0.1.1-alm.2",
+  "version": "0.1.1-alm.3",
   "description": "Fork of hellosverre's skins: themed tool rows, reply gutters and a shimmering spinner that keeps your spinnerVerbs (/skin words on for the skin's). /skin swaps them live.",
   "author": { "name": "hellosverre", "url": "https://github.com/hellosverre" },
   "license": "MIT",
