@@ -9,6 +9,8 @@ Google Antigravity CLI (`agy`) is an autonomous terminal coding agent (Gemini an
 
 Treat an agy job like a contractor you briefed over email: it only knows what's in the prompt and the directory you point it at, and its work is unverified until you check it.
 
+For a code review of a branch, PR, commit range or set of files, use this plugin's `review` skill (`/antigravity-agents:review`) instead. It has the review workflow, lenses and findings schema built in. This skill covers every other kind of job.
+
 ## Resolving the binary
 
 After install, `agy` is normally on your `PATH`. If a tool-spawned shell can't find it (some shells don't inherit a freshly updated PATH), fall back to the full path:
