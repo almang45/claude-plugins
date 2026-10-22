@@ -95,10 +95,20 @@ test('tables and closed code fences are split out of a reply, and a fence keeps 
   })
 })
 
-test('columns narrow from the widest until the table fits, and cells pad to their side', async () => {
+test('columns fit the width, wide ones narrowing first, and cells pad to their side', async () => {
   const table = { kind: 'table' as const, header: ['a', 'b'], align: ['left' as const, 'right' as const], rows: [['x'.repeat(30), 'yy']] }
 
   expect(columnWidths(table, 20, 3)).toEqual([15, 2])
+
+  // Short columns keep their width; the prose columns share the rest and wrap.
+  const findings = {
+    kind: 'table' as const,
+    header: ['Severity', 'Where', 'Finding', 'Suggested fix'],
+    align: ['left' as const, 'left' as const, 'left' as const, 'left' as const],
+    rows: [['Medium', ':375,393,659', 'f'.repeat(300), 's'.repeat(100)]],
+  }
+  expect(columnWidths(findings, 160, 2)).toEqual([8, 12, 85, 49])
+  expect(columnWidths(findings, 600, 2)).toEqual([8, 12, 300, 100])
   expect(padCell('abc', 6, 'right')).toBe('   abc')
   expect(padCell('abcdefgh', 5, 'left')).toBe('abcd…')
 })

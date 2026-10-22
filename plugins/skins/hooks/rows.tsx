@@ -2,7 +2,7 @@ import type { ElementTable, RenderSurface } from 'claude-code'
 
 import type { Prefs, TurnStats } from '../types'
 import { formatDuration, formatMs } from './format'
-import { columnWidths, cutCell } from './markdown'
+import { columnWidths, naturalWidths } from './markdown'
 import type { Segment, Table } from './markdown'
 import type { Icons, Kind, Skin } from './skin'
 import { spinnerIcon, toolIcon } from './icons'
@@ -264,29 +264,38 @@ export function promptRow(look: Look, text: string, images?: ReturnType<Ui['Text
 const JUSTIFY = { left: 'flex-start', right: 'flex-end', center: 'center' } as const
 
 // The share of the reported width a table may take at its natural size. Past it, the
-// table spans its container and splits it between columns in proportion: the desktop
+// table spans its container and its wrapping columns take up the slack: the desktop
 // app reports the window's width, wider than the transcript column a reply sits in.
 const NATURAL_SHARE = 0.55
 
 // A grid of cells, so columns line up in the terminal's monospace and in the desktop
-// app's proportional font alike. `control`, such as a Copy button, sits on the frame's
-// top border at the right, as ╭──── Copy ─╮.
+// app's proportional font alike. Cells wrap rather than cut, like Claude Code's own
+// tables. `control`, such as a Copy button, sits on the frame's top border at the right,
+// as ╭──── Copy ─╮.
 export function tableRows(look: Look, table: Table, maxWidth: number, control?: ReturnType<Ui['Button']>) {
   const { Box, Text } = look.ui
   const { palette } = look.skin
+  const full = naturalWidths(table)
   const widths = columnWidths(table, maxWidth - 4, CELL_PAD * 2)
   const natural = widths.reduce((sum, width) => sum + width + CELL_PAD * 2, 2)
   const isFluid = natural > maxWidth * NATURAL_SHARE
-  const size = (i: number) =>
-    isFluid
-      ? { width: 0, flexGrow: Math.max(1, widths[i] ?? 1), flexShrink: 1 }
-      : { width: (widths[i] ?? 0) + CELL_PAD * 2, flexShrink: 0 }
+  const widest = widths.indexOf(Math.max(...widths))
+  // Only wrapping columns, and the widest, give or take room, so short ones like a
+  // severity never shrink when the column is narrower than the reported width.
+  const isElastic = (i: number) => (widths[i] ?? 0) < (full[i] ?? 0) || i === widest
+  const size = (i: number) => {
+    const width = (widths[i] ?? 0) + CELL_PAD * 2
+
+    return isElastic(i)
+      ? { width, minWidth: CELL_PAD * 2 + 1, flexShrink: 1, flexGrow: isFluid ? 1 : 0 }
+      : { width, minWidth: width, flexShrink: 0 }
+  }
   const row = (cells: readonly string[], isHeader: boolean, band: string | undefined) => (
     <Box flexDirection="row" {...(band === undefined ? {} : { backgroundColor: band })}>
       {cells.map((cell, i) => (
         <Box {...size(i)} paddingX={CELL_PAD} justifyContent={JUSTIFY[table.align[i] ?? 'left']}>
-          <Text color={palette.fg} bold={isHeader} wrap="truncate-end">
-            {cutCell(cell, widths[i] ?? 0)}
+          <Text color={palette.fg} bold={isHeader} wrap="wrap">
+            {cell}
           </Text>
         </Box>
       ))}

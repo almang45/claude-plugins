@@ -321,10 +321,11 @@ test('/skin with no argument opens the settings pane', async ($, on) => {
   expect(answer.text).toBeUndefined()
 })
 
-test('a table wider than its share spans the column instead of running off it', async ($, on) => {
+test('a table wider than its share spans the column and wraps its long cells instead of cutting them', async ($, on) => {
   stubEngine(on)
 
-  const wide = `| File | What changed |\n|---|---|\n| server.ts | ${'a long description '.repeat(6)} |`
+  const long = 'a long description '.repeat(6).trim()
+  const wide = `| File | What changed |\n|---|---|\n| server.ts | ${long} |`
 
   for (const surface of ['terminal'] as const) {
     const ui = await $.ui.mount({
@@ -343,7 +344,10 @@ test('a table wider than its share spans the column instead of running off it', 
     expect(frame?.props?.width).toBe('100%')
     expect(control?.props?.position).toBe('absolute')
     expect(control?.props?.top).toBe(-1)
-    expect(await ui.find({ type: 'Text', text: /…$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /…$/ })).toBeUndefined()
+
+    const cell = (await ui.find({ type: 'Text', text: long })) as { props?: { wrap?: unknown } } | undefined
+    expect(cell?.props?.wrap).toBe('wrap')
     await ui.unmount()
   }
 })
