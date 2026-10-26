@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Code review by Google Antigravity CLI (agy) sub-agents, one print-mode job per lens.
+"""Code review by Google Antigravity CLI (agy) sub-agents, compared with Claude Opus reviewers.
 
-  scope    resolve what to review into a job directory and pick the model
+  scope    resolve what to review into a job directory, pick the agy model, write the Opus briefs
   run      run one lens as an agy job and normalise its result
-  report   merge the finished lenses into one ranked list
+  ingest   normalise one Opus reviewer agent's reply
+  report   merge every reviewer's findings; with --verdicts, score the reviewers against each other
   cleanup  remove the worktree that scope created for a PR or range
 
 Every subcommand prints one JSON object on stdout. Errors print {"error": ...} on
-stderr and exit 1; `run` exits 2 when the lens finished without structured findings.
+stderr and exit 1; `run` and `ingest` exit 2 when a lens finished without structured findings.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import signal
 import string
@@ -25,6 +27,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections import Counter
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,6 +38,11 @@ LENS_DIR = SKILL_DIR / "lenses"
 BRIEF_PATH = SKILL_DIR / "brief.md"
 SCHEMA_PATH = SKILL_DIR / "findings.schema.json"
 
+REVIEWERS = ("agy", "opus")
+OPUS_AGENT = "antigravity-agents:opus-reviewer"
+OPUS_MODEL = "opus"
+VERDICTS = ("confirmed", "plausible", "rejected")
+VALID_VERDICTS = ("confirmed", "plausible")
 DEFAULT_LENSES = ("correctness", "security", "reliability", "conventions")
 ALL_LENS = "all"
 # Below this many changed lines, one job covering every lens beats four narrow ones.
@@ -63,6 +71,26 @@ RESUME_PROMPT = string.Template(
     "the same change now, without starting over, and return the result through the "
     "structured output."
 )
+# agy enforces the schema through --json-schema; an Opus agent only has these words and a parser.
+OUTPUT_RULES = {
+    "agy": (
+        "Return the result through the structured output: `summary`, one or two sentences on this lens,\n"
+        "and `findings`, which may be empty."
+    ),
+    "opus": (
+        "Your final message is the result and nothing else: one JSON object in a ```json fence, which a\n"
+        "script parses. It has `summary`, one or two sentences on this lens, and `findings`, which may be\n"
+        "empty. Each finding has exactly these fields: `file` (path relative to the repository root),\n"
+        "`line` (integer), `severity` (critical, high, medium or low), `category` (a kebab-case slug such\n"
+        "as missing-timeout), `title` (at most 80 characters), `failure_scenario`, `evidence` (the code\n"
+        "and call path, with file:line references), `suggested_fix` and `confidence` (0.0 to 1.0).\n"
+        f"The JSON Schema is {SCHEMA_PATH}."
+    ),
+}
+REPO_NOTES = {
+    "agy": "It is your working directory.",
+    "opus": "Read it by absolute path: your own working directory can be another checkout.",
+}
 
 
 class ReviewError(Exception):
@@ -106,7 +134,8 @@ class Scope:
     deleted: int
     diff_bytes: int
     lenses: List[str]
-    model: str
+    reviewers: List[str]
+    model: Optional[str]
     effort: str
     timeout_min: float
     fingerprint: str
@@ -377,10 +406,15 @@ def list_models(agy: str) -> Dict[str, List[str]]:
     return variants
 
 
-def resolve_model(agy: str, requested_model: Optional[str], requested_effort: Optional[str]) -> Tuple[str, str]:
-    effort = requested_effort or os.environ.get("AGY_REVIEW_EFFORT") or DEFAULT_EFFORT
+def pick_effort(requested: Optional[str]) -> str:
+    effort = requested or os.environ.get("AGY_REVIEW_EFFORT") or DEFAULT_EFFORT
     if effort not in EFFORTS:
         raise ReviewError(f"effort must be one of {', '.join(EFFORTS)}, not {effort!r}")
+    return effort
+
+
+def resolve_model(agy: str, requested_model: Optional[str], requested_effort: Optional[str]) -> Tuple[str, str]:
+    effort = pick_effort(requested_effort)
     variants = list_models(agy)
     model = requested_model or os.environ.get("AGY_REVIEW_MODEL")
     if model:
@@ -393,7 +427,9 @@ def resolve_model(agy: str, requested_model: Optional[str], requested_effort: Op
         candidates = [b for b in variants if b.startswith("gemini-") and effort in variants[b]]
         if not candidates:
             raise ReviewError(f"`agy models` lists no Gemini model with {effort} effort: {', '.join(sorted(variants))}")
-        model = max(candidates, key=gemini_rank)
+        # Flash is the model this review compares with Opus; a newer heavier tier (Argon, Pro) needs --model.
+        flash = [b for b in candidates if gemini_rank(b)[1] == 1]
+        model = max(flash or candidates, key=gemini_rank)
     if variants[model] and effort not in variants[model]:
         raise ReviewError(f"{model} offers {', '.join(variants[model])} effort, not {effort}")
     return model, effort
@@ -418,19 +454,34 @@ def pick_lenses(requested: Optional[str], changed_lines: int) -> List[str]:
     return names
 
 
+def pick_reviewers(requested: Optional[str]) -> List[str]:
+    raw = requested or os.environ.get("AGY_REVIEW_REVIEWERS") or ",".join(REVIEWERS)
+    names = list(dict.fromkeys(n.strip() for n in raw.split(",") if n.strip()))
+    unknown = [n for n in names if n not in REVIEWERS]
+    if unknown or not names:
+        bad = ", ".join(unknown) if unknown else repr(raw)
+        raise ReviewError(f"unknown reviewer {bad}; available: {', '.join(REVIEWERS)}")
+    return names
+
+
+def require_reviewer(scope: Scope, reviewer: str) -> None:
+    if reviewer not in scope.reviewers:
+        raise ReviewError(f"this job's reviewers are {', '.join(scope.reviewers)}, not {reviewer}")
+
+
 def lens_brief(lens: str) -> str:
     if lens != ALL_LENS:
         return (LENS_DIR / f"{lens}.md").read_text(encoding="utf-8").strip()
     parts = [f"### {name}\n\n{(LENS_DIR / f'{name}.md').read_text(encoding='utf-8').strip()}" for name in DEFAULT_LENSES]
-    return "You are the only reviewer of this change, so cover every lens below; correctness and security first.\n\n" + "\n\n".join(parts)
+    return "This job covers every lens below; correctness and security first.\n\n" + "\n\n".join(parts)
 
 
-def build_prompt(scope: Scope, lens: str) -> str:
+def build_prompt(scope: Scope, lens: str, reviewer: str) -> str:
     inputs = Path(scope.job_dir) / "input"
     if scope.mode == "paths":
         listed = "\n".join(f"  - {f}" for f in scope.files)
         change = (
-            f"- Repository: your working directory, {scope.root}\n"
+            f"- Repository: {scope.root}. {REPO_NOTES[reviewer]}\n"
             f"- What: these files, reviewed in full rather than as a diff:\n{listed}"
         )
         read_rule = "Read each listed file in full first."
@@ -438,7 +489,7 @@ def build_prompt(scope: Scope, lens: str) -> str:
     else:
         untracked = "\n- Untracked new files are in the diff as additions." if scope.untracked else ""
         change = (
-            f"- Repository: your working directory, {scope.root}, checked out at the reviewed revision.\n"
+            f"- Repository: {scope.root}, checked out at the reviewed revision. {REPO_NOTES[reviewer]}\n"
             f"- What: {scope.description}\n"
             f"- Diff: {inputs / 'diff.patch'} ({len(scope.files)} files, +{scope.added} -{scope.deleted})\n"
             f"- Changed files, one per line: {inputs / 'files.txt'}{untracked}"
@@ -449,7 +500,8 @@ def build_prompt(scope: Scope, lens: str) -> str:
             "out unless the change makes them worse."
         )
     return string.Template(BRIEF_PATH.read_text(encoding="utf-8")).substitute(
-        lens=lens, change=change, read_rule=read_rule, scope_rule=scope_rule, lens_brief=lens_brief(lens)
+        lens=lens, change=change, read_rule=read_rule, scope_rule=scope_rule, lens_brief=lens_brief(lens),
+        output_rule=OUTPUT_RULES[reviewer],
     )
 
 
@@ -526,8 +578,14 @@ def cmd_scope(args: argparse.Namespace) -> Dict[str, Any]:
     if not top:
         raise ReviewError(f"{cwd} is not inside a git repository")
     repo = Path(top).resolve()
-    agy = agy_bin()
-    model, effort = resolve_model(agy, args.model, args.effort)
+    reviewers = pick_reviewers(args.reviewers)
+    model: Optional[str] = None
+    if "agy" in reviewers:
+        model, effort = resolve_model(agy_bin(), args.model, args.effort)
+    elif args.model:
+        raise ReviewError("--model picks the agy model, and this review has no agy reviewer")
+    else:
+        effort = pick_effort(args.effort)
     job_dir = new_job_dir(args.job_dir, repo)
     try:
         change = resolve_change(repo, args, job_dir)
@@ -538,18 +596,24 @@ def cmd_scope(args: argparse.Namespace) -> Dict[str, Any]:
         inputs.mkdir()
         (inputs / "diff.patch").write_bytes(change.patch)
         (inputs / "files.txt").write_text("".join(f"{f}\n" for f in change.files), encoding="utf-8")
-        (job_dir / "out").mkdir()
+        for reviewer in reviewers:
+            (job_dir / "out" / reviewer).mkdir(parents=True)
         scope = Scope(
             job_dir=str(job_dir), repo=str(repo), root=str(change.root), mode=change.mode,
             description=change.description, base=change.base, head=change.head,
             worktree=str(change.worktree) if change.worktree else None,
             files=change.files, untracked=change.untracked, skipped=change.skipped,
             added=change.added, deleted=change.deleted, diff_bytes=len(change.patch),
-            lenses=lenses, model=model, effort=effort, timeout_min=args.timeout,
+            lenses=lenses, reviewers=reviewers, model=model, effort=effort, timeout_min=args.timeout,
             fingerprint=tree_fingerprint(change.root),
             created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         )
         write_json(job_dir / "scope.json", asdict(scope))
+        if "opus" in reviewers:
+            for lens in lenses:
+                (job_dir / "out" / "opus" / f"{lens}.prompt.md").write_text(
+                    build_prompt(scope, lens, "opus"), encoding="utf-8"
+                )
     except BaseException:
         discard_job(repo, job_dir)
         raise
@@ -557,8 +621,10 @@ def cmd_scope(args: argparse.Namespace) -> Dict[str, Any]:
     if scope.diff_bytes > LARGE_DIFF_BYTES:
         warnings.append(f"diff is {scope.diff_bytes // 1024} KiB; consider a narrower range or --paths")
     if scope.worktree is None and scope.root == scope.repo:
-        warnings.append("agy reads your checkout: make no edits there until every lens has finished")
-    script = Path(__file__).resolve()
+        warnings.append("the reviewers read your checkout: make no edits there until every lens has finished")
+    helper = f"python3 -I {shlex.quote(str(Path(__file__).resolve()))}"
+    job = shlex.quote(scope.job_dir)
+    opus_out = job_dir / "out" / "opus"
     return {
         "job_dir": scope.job_dir,
         "mode": scope.mode,
@@ -571,11 +637,25 @@ def cmd_scope(args: argparse.Namespace) -> Dict[str, Any]:
         "added": scope.added,
         "deleted": scope.deleted,
         "lenses": scope.lenses,
+        "reviewers": scope.reviewers,
         "model": scope.model,
         "effort": scope.effort,
         "timeout_min": scope.timeout_min,
         "warnings": warnings,
-        "run_commands": [f"python3 -I {script} run {scope.job_dir} {lens}" for lens in scope.lenses],
+        "run_commands": [f"{helper} run {job} {lens}" for lens in scope.lenses] if "agy" in reviewers else [],
+        "opus_tasks": [
+            {
+                "lens": lens,
+                "subagent_type": OPUS_AGENT,
+                "model": OPUS_MODEL,
+                "effort": scope.effort,
+                "description": f"Opus review: {lens}",
+                "prompt": f"Brief: {opus_out / f'{lens}.prompt.md'}\nRead it first and follow it exactly.",
+                "reply_file": str(opus_out / f"{lens}.response.md"),
+                "ingest_command": f"{helper} ingest {job} {lens}",
+            }
+            for lens in scope.lenses
+        ] if "opus" in reviewers else [],
     }
 
 
@@ -627,12 +707,44 @@ def parse_agy_json(raw: bytes) -> Dict[str, Any]:
     return {}
 
 
-def clean_findings(raw: Any, lens: str) -> List[Dict[str, Any]]:
+def result_at(decoder: json.JSONDecoder, text: str, index: int) -> Optional[Dict[str, Any]]:
+    if index < 0:
+        return None
+    try:
+        data, _ = decoder.raw_decode(text, index)
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, dict) and isinstance(data.get("findings"), list) else None
+
+
+def parse_reply(text: str) -> Optional[Dict[str, Any]]:
+    """The result object in an agent's reply: the last ```json fence that holds one, else the first bare one."""
+    decoder = json.JSONDecoder()
+    # raw_decode, not a fence regex: a finding's evidence can itself quote a ``` block.
+    for start in [m.end() for m in re.finditer(r"```json", text)][::-1]:
+        data = result_at(decoder, text, text.find("{", start))
+        if data is not None:
+            return data
+    # Every brace, not just the first: the prose before a bare object can hold braces of its own.
+    for brace in re.finditer(r"\{", text):
+        data = result_at(decoder, text, brace.start())
+        if data is not None:
+            return data
+    return None
+
+
+def required_fields() -> List[str]:
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    return list(schema["properties"]["findings"]["items"]["required"])
+
+
+def clean_findings(raw: Any, lens: str, reviewer: str) -> List[Dict[str, Any]]:
     findings: List[Dict[str, Any]] = []
     for item in raw if isinstance(raw, list) else []:
         if not isinstance(item, dict):
             continue
         finding = dict(item)
+        finding["file"] = str(finding.get("file") or "")
         severity = str(finding.get("severity", "")).lower()
         finding["severity"] = severity if severity in SEVERITY_RANK else "medium"
         try:
@@ -644,8 +756,22 @@ def clean_findings(raw: Any, lens: str) -> List[Dict[str, Any]]:
         except (TypeError, ValueError):
             finding["confidence"] = 0.5
         finding["lens"] = lens
+        finding["reviewer"] = reviewer
+        finding["ref"] = f"{reviewer}/{lens}#{len(findings) + 1}"
         findings.append(finding)
     return findings
+
+
+def incomplete(findings: List[Dict[str, Any]], raw: Any) -> List[str]:
+    """Findings whose reply left out schema fields; clean_findings filled them with defaults."""
+    required = required_fields()
+    items = [item for item in raw if isinstance(item, dict)] if isinstance(raw, list) else []
+    warnings = []
+    for finding, item in zip(findings, items):
+        missing = [name for name in required if name not in item]
+        if missing:
+            warnings.append(f"{finding['ref']} lacks {', '.join(missing)}")
+    return warnings
 
 
 def classify(structured: Any, data: Dict[str, Any], timed_out: bool) -> str:
@@ -659,8 +785,8 @@ def classify(structured: Any, data: Dict[str, Any], timed_out: bool) -> str:
     return "error"
 
 
-def archive_attempt(out: Path, lens: str, attempt: int) -> None:
-    for suffix in ("result.json", "json", "err", "prompt.md"):
+def archive_attempt(out: Path, lens: str, attempt: int, suffixes: Sequence[str]) -> None:
+    for suffix in suffixes:
         current = out / f"{lens}.{suffix}"
         if current.exists():
             current.replace(out / f"{lens}.{suffix}.{attempt}")
@@ -669,9 +795,10 @@ def archive_attempt(out: Path, lens: str, attempt: int) -> None:
 def cmd_run(args: argparse.Namespace) -> Dict[str, Any]:
     job_dir = Path(args.job_dir).resolve()
     scope = load_scope(job_dir)
+    require_reviewer(scope, "agy")
     lens: str = args.lens
     pick_lenses(lens, 0)
-    out = job_dir / "out"
+    out = job_dir / "out" / "agy"
     previous = read_json(out / f"{lens}.result.json")
     attempt = int(previous.get("attempt", 0)) + 1 if previous else 1
     conversation: Optional[str] = None
@@ -681,9 +808,9 @@ def cmd_run(args: argparse.Namespace) -> Dict[str, Any]:
             raise ReviewError(f"lens {lens} has no earlier agy conversation to resume")
         prompt = RESUME_PROMPT.substitute(lens=lens)
     else:
-        prompt = build_prompt(scope, lens)
+        prompt = build_prompt(scope, lens, "agy")
     if previous:
-        archive_attempt(out, lens, attempt - 1)
+        archive_attempt(out, lens, attempt - 1, ("result.json", "json", "err", "prompt.md"))
     (out / f"{lens}.prompt.md").write_text(prompt, encoding="utf-8")
 
     timeout_min: float = args.timeout or scope.timeout_min
@@ -707,9 +834,10 @@ def cmd_run(args: argparse.Namespace) -> Dict[str, Any]:
     stderr_text = (out / f"{lens}.err").read_bytes().decode(errors="replace")
     structured = data.get("structured_output")
     status = classify(structured, data, killed or "print timeout" in stderr_text)
-    findings = clean_findings(structured.get("findings") if isinstance(structured, dict) else None, lens)
+    findings = clean_findings(structured.get("findings") if isinstance(structured, dict) else None, lens, "agy")
     result: Dict[str, Any] = {
         "lens": lens,
+        "reviewer": "agy",
         "status": status,
         "attempt": attempt,
         "summary": structured.get("summary") if isinstance(structured, dict) else None,
@@ -736,57 +864,268 @@ def cmd_run(args: argparse.Namespace) -> Dict[str, Any]:
     return shown
 
 
-def group_duplicates(findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Folds findings from different lenses that point at the same spot into the most severe one."""
-    kept: List[Dict[str, Any]] = []
-    for finding in sorted(
-        findings,
-        key=lambda f: (SEVERITY_RANK[f["severity"]], -f["confidence"], str(f.get("file", "")), f["line"]),
-    ):
-        twin = next(
-            (k for k in kept if k.get("file") == finding.get("file") and abs(k["line"] - finding["line"]) <= 3
-             and k["lens"] != finding["lens"]),
+def cmd_ingest(args: argparse.Namespace) -> Dict[str, Any]:
+    job_dir = Path(args.job_dir).resolve()
+    scope = load_scope(job_dir)
+    require_reviewer(scope, "opus")
+    lens: str = args.lens
+    if lens not in scope.lenses:
+        raise ReviewError(f"lens {lens} is not in this job; its lenses are {', '.join(scope.lenses)}")
+    out = job_dir / "out" / "opus"
+    reply_path = out / f"{lens}.response.md"
+    try:
+        reply = reply_path.read_text(encoding="utf-8")
+    except FileNotFoundError as exc:
+        raise ReviewError(f"no reply at {reply_path}; write the agent's final message there first") from exc
+    previous = read_json(out / f"{lens}.result.json")
+    attempt = int(previous.get("attempt", 0)) + 1 if previous else 1
+    if previous:
+        archive_attempt(out, lens, attempt - 1, ("result.json",))
+    # Moved aside: Claude's Write tool won't overwrite a file it hasn't read, so a retry needs a free path.
+    kept = out / f"{lens}.response.md.{attempt}"
+    reply_path.replace(kept)
+
+    data = parse_reply(reply)
+    raw = data.get("findings") if data else None
+    findings = clean_findings(raw, lens, "opus")
+    status = "ok" if data is not None else "unstructured" if reply.strip() else "error"
+    result: Dict[str, Any] = {
+        "lens": lens,
+        "reviewer": "opus",
+        "status": status,
+        "attempt": attempt,
+        "summary": data.get("summary") if data else None,
+        "finding_count": len(findings),
+        "findings": findings,
+        "warnings": incomplete(findings, raw),
+        "tree_changed": tree_fingerprint(Path(scope.root)) != scope.fingerprint,
+        "model": OPUS_MODEL,
+        "effort": scope.effort,
+        "duration_s": args.duration_s,
+        "tokens": args.tokens,
+        "reply_file": str(kept),
+        "response": None if data else reply,
+    }
+    write_json(out / f"{lens}.result.json", result)
+    shown = {k: v for k, v in result.items() if k != "response" or status != "ok"}
+    shown["result_file"] = str(out / f"{lens}.result.json")
+    return shown
+
+
+def rank_key(finding: Dict[str, Any]) -> Tuple[int, float, str, int]:
+    return SEVERITY_RANK[finding["severity"]], -finding["confidence"], finding["file"], finding["line"]
+
+
+def group_findings(findings: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
+    """Groups findings at the same spot from different reviewers or lenses; each group starts with its most severe."""
+    groups: List[List[Dict[str, Any]]] = []
+    for finding in sorted(findings, key=rank_key):
+        source = (finding["reviewer"], finding["lens"])
+        group = next(
+            (g for g in groups
+             if g[0]["file"] == finding["file"]
+             and any(abs(m["line"] - finding["line"]) <= 3 for m in g)
+             and all((m["reviewer"], m["lens"]) != source for m in g)),
             None,
         )
-        if twin is None:
-            kept.append({**finding, "also_reported_by": []})
+        if group is None:
+            groups.append([finding])
         else:
-            twin["also_reported_by"].append({"lens": finding["lens"], "title": finding.get("title", "")})
-    return kept
+            group.append(finding)
+    return groups
+
+
+def make_issue(
+    issue_id: str,
+    members: List[Dict[str, Any]],
+    verdict: Optional[str] = None,
+    severity: Optional[str] = None,
+    reason: Optional[str] = None,
+) -> Dict[str, Any]:
+    lead = min(members, key=rank_key)
+    issue: Dict[str, Any] = {"id": issue_id}
+    if verdict:
+        issue["verdict"] = verdict
+    issue["severity"] = severity or lead["severity"]
+    if verdict:
+        issue["severity_set_by_verdict"] = severity is not None
+    issue.update(
+        {key: lead.get(key) for key in ("file", "line", "category", "title", "failure_scenario", "evidence", "suggested_fix")}
+    )
+    if verdict:
+        issue["reason"] = reason or ""
+    issue["found_by"] = sorted({m["reviewer"] for m in members})
+    issue["lenses"] = sorted({m["lens"] for m in members})
+    issue["refs"] = [{key: m.get(key) for key in ("ref", "severity", "line", "title", "confidence")} for m in members]
+    return issue
+
+
+def entry_problems(n: int, entry: Any, by_ref: Dict[str, Any], owner: Dict[str, int]) -> List[str]:
+    if not isinstance(entry, dict):
+        return [f"entry {n} is not an object"]
+    problems = []
+    refs = entry.get("refs")
+    if not isinstance(refs, list) or not refs or not all(isinstance(r, str) for r in refs):
+        problems.append(f"entry {n}: refs must be a non-empty list of finding refs")
+        refs = []
+    if entry.get("verdict") not in VERDICTS:
+        problems.append(f"entry {n}: verdict must be one of {', '.join(VERDICTS)}")
+    if entry.get("severity") is not None and entry["severity"] not in SEVERITY_RANK:
+        problems.append(f"entry {n}: severity must be one of {', '.join(SEVERITY_RANK)}")
+    for ref in refs:
+        if ref not in by_ref:
+            problems.append(f"entry {n}: unknown ref {ref}")
+        elif ref in owner:
+            problems.append(f"entry {n}: {ref} is already in entry {owner[ref]}")
+        else:
+            owner[ref] = n
+    return problems
+
+
+def load_verdicts(path: Path, by_ref: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Claude's verdicts: one entry per distinct defect, listing the ref of every finding that reports it."""
+    try:
+        entries = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise ReviewError(f"no verdicts file at {path}") from exc
+    except json.JSONDecodeError as exc:
+        raise ReviewError(f"{path} is not valid JSON: {exc}") from exc
+    if not isinstance(entries, list):
+        raise ReviewError(f"{path} must hold a JSON list of {{refs, verdict, reason, severity}} entries")
+    owner: Dict[str, int] = {}
+    problems = [p for n, entry in enumerate(entries, 1) for p in entry_problems(n, entry, by_ref, owner)]
+    if problems:
+        raise ReviewError(f"{path}: " + "; ".join(problems))
+    return entries
+
+
+def verified_issues(entries: List[Dict[str, Any]], by_ref: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
+    issues = [
+        make_issue("", [by_ref[r] for r in e["refs"]], e["verdict"], e.get("severity"), e.get("reason"))
+        for e in entries
+    ]
+    issues.sort(key=lambda i: (
+        VERDICTS.index(i["verdict"]), SEVERITY_RANK[i["severity"]], -max(r["confidence"] for r in i["refs"])
+    ))
+    for n, issue in enumerate(issues, 1):
+        issue["id"] = f"I{n}"
+    return issues
+
+
+def finished_lenses(info: Dict[str, Any]) -> List[str]:
+    return [name for name, lens in info["lenses"].items() if lens.get("status") == "ok"]
+
+
+def covers(finished: Sequence[str], issue: Dict[str, Any]) -> bool:
+    """Whether a reviewer finished a lens that could have found the issue; lens briefs keep each job in its lane."""
+    return ALL_LENS in finished or any(lens in finished for lens in issue["lenses"])
+
+
+def severity_corrected(finding: Dict[str, Any], issue: Dict[str, Any]) -> bool:
+    # Without a severity in the verdict the issue inherits its most severe report, which corrects nobody.
+    return issue["severity_set_by_verdict"] and finding["severity"] != issue["severity"]
+
+
+def scoreboard(
+    findings: List[Dict[str, Any]], issues: List[Dict[str, Any]], reviewers: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Per reviewer: how many of its findings held up, and its share of the valid issues it had a chance to find.
+
+    An issue that sits in a lens a reviewer didn't finish is neither its miss nor the other side's unique find.
+    """
+    issue_of = {ref["ref"]: issue for issue in issues for ref in issue["refs"]}
+    valid = [i for i in issues if i["verdict"] in VALID_VERDICTS]
+    finished = {reviewer: finished_lenses(info) for reviewer, info in reviewers.items()}
+    board: Dict[str, Any] = {}
+    for reviewer, info in reviewers.items():
+        own = [f for f in findings if f["reviewer"] == reviewer]
+        own_valid = [f for f in own if f["ref"] in issue_of and issue_of[f["ref"]]["verdict"] in VALID_VERDICTS]
+        counts = {v: sum(1 for f in own if f["ref"] in issue_of and issue_of[f["ref"]]["verdict"] == v) for v in VERDICTS}
+        verified = sum(counts.values())
+        reachable = [i for i in valid if covers(finished[reviewer], i)]
+        found = [i for i in reachable if reviewer in i["found_by"]]
+        others = [r for r in reviewers if r != reviewer]
+        durations = [lens["duration_s"] for lens in info["lenses"].values() if lens.get("duration_s") is not None]
+        board[reviewer] = {
+            "findings": len(own),
+            **counts,
+            "unverified": len(own) - verified,
+            "precision": round((counts["confirmed"] + counts["plausible"]) / verified, 2) if verified else None,
+            "severity_changed": sum(1 for f in own_valid if severity_corrected(f, issue_of[f["ref"]])),
+            "valid_issues": len(found),
+            "unique_valid": sum(
+                1 for i in found if i["found_by"] == [reviewer] and all(covers(finished[r], i) for r in others)
+            ),
+            "recall": round(len(found) / len(reachable), 2) if reachable else None,
+            "missed": [i["id"] for i in reachable if reviewer not in i["found_by"]],
+            "not_covered": [i["id"] for i in valid if not covers(finished[reviewer], i)],
+            "valid_by_severity": {s: sum(1 for i in found if i["severity"] == s) for s in SEVERITY_RANK},
+            "lenses_failed": [name for name in info["lenses"] if name not in finished[reviewer]],
+            "slowest_lens_s": max(durations) if durations else None,
+        }
+    return board
+
+
+def collect_results(job_dir: Path, scope: Scope) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+    reviewers: Dict[str, Any] = {}
+    findings: List[Dict[str, Any]] = []
+    for reviewer in scope.reviewers:
+        out = job_dir / "out" / reviewer
+        found = sorted(p.name[: -len(".result.json")] for p in out.glob("*.result.json"))
+        lenses: Dict[str, Any] = {}
+        for lens in dict.fromkeys([*scope.lenses, *found]):
+            result = read_json(out / f"{lens}.result.json")
+            if result is None:
+                lenses[lens] = {"status": "not-run"}
+                continue
+            keys = ("status", "summary", "finding_count", "attempt", "duration_s", "tree_changed", "conversation_id")
+            lenses[lens] = {key: result[key] for key in keys if key in result}
+            findings.extend(result.get("findings", []))
+        reviewers[reviewer] = {
+            "model": scope.model if reviewer == "agy" else OPUS_MODEL,
+            "effort": scope.effort,
+            "lenses": lenses,
+        }
+    return reviewers, findings
 
 
 def cmd_report(args: argparse.Namespace) -> Dict[str, Any]:
     job_dir = Path(args.job_dir).resolve()
     scope = load_scope(job_dir)
-    out = job_dir / "out"
-    found = sorted(p.name[: -len(".result.json")] for p in out.glob("*.result.json"))
-    lenses = list(dict.fromkeys([*scope.lenses, *found]))
-    summary: Dict[str, Any] = {}
-    findings: List[Dict[str, Any]] = []
-    for lens in lenses:
-        result = read_json(out / f"{lens}.result.json")
-        if result is None:
-            summary[lens] = {"status": "not-run"}
-            continue
-        summary[lens] = {
-            key: result.get(key)
-            for key in ("status", "summary", "finding_count", "attempt", "duration_s", "tree_changed", "conversation_id")
-        }
-        findings.extend(f for f in result.get("findings", []) if f.get("confidence", 0) >= args.min_confidence)
-    merged = group_duplicates(findings)
-    report = {
+    reviewers, findings = collect_results(job_dir, scope)
+    report: Dict[str, Any] = {
         "job_dir": str(job_dir),
         "description": scope.description,
         "root": scope.root,
-        "model": scope.model,
-        "effort": scope.effort,
-        "lenses": summary,
-        "tree_changed": any(v.get("tree_changed") for v in summary.values()),
-        "total": len(merged),
-        "by_severity": {s: sum(1 for f in merged if f["severity"] == s) for s in SEVERITY_RANK},
-        "findings": merged,
+        "reviewers": reviewers,
+        "tree_changed": any(
+            lens.get("tree_changed") for info in reviewers.values() for lens in info["lenses"].values()
+        ),
+        "verified": bool(args.verdicts),
     }
-    write_json(job_dir / "report.json", report)
+    if args.verdicts:
+        by_ref = {f["ref"]: f for f in findings}
+        entries = load_verdicts(Path(args.verdicts).resolve(), by_ref)
+        issues = verified_issues(entries, by_ref)
+        counted = [i for i in issues if i["verdict"] in VALID_VERDICTS]
+        covered = {ref for entry in entries for ref in entry["refs"]}
+        report.update(
+            valid=len(counted),
+            rejected=len(issues) - len(counted),
+            unverified_refs=[f["ref"] for f in findings if f["ref"] not in covered],
+            scoreboard=scoreboard(findings, issues, reviewers),
+        )
+    else:
+        kept = [f for f in findings if f["confidence"] >= args.min_confidence]
+        issues = [make_issue(f"I{n}", group) for n, group in enumerate(group_findings(kept), 1)]
+        counted = issues
+        report["total"] = len(issues)
+    report.update(
+        by_severity={s: sum(1 for i in counted if i["severity"] == s) for s in SEVERITY_RANK},
+        found_by=dict(Counter("+".join(i["found_by"]) for i in counted)),
+        issues=issues,
+    )
+    write_json(job_dir / ("report.verified.json" if args.verdicts else "report.json"), report)
     return report
 
 
@@ -819,7 +1158,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     scope.add_argument("--paths", nargs="+", metavar="FILE", help="review these files in full instead of a diff")
     scope.add_argument("--lenses", default="auto", help="comma-separated lenses, 'all', or auto (default)")
-    scope.add_argument("--model", help="agy model; default: the newest Gemini offering the effort")
+    scope.add_argument(
+        "--reviewers", help=f"comma-separated, from {', '.join(REVIEWERS)} (default: all of them, or $AGY_REVIEW_REVIEWERS)"
+    )
+    scope.add_argument("--model", help="agy model; default: the newest Gemini Flash offering the effort")
     scope.add_argument("--effort", choices=EFFORTS, help=f"reasoning effort (default {DEFAULT_EFFORT})")
     scope.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT_MIN, help="minutes per lens job")
     scope.add_argument("--job-dir", help="where to keep the job (default: a new agy-review-<repo>-* folder in $TMPDIR)")
@@ -834,9 +1176,17 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--timeout", type=float, help="minutes; default: the scope's timeout")
     run.set_defaults(func=cmd_run)
 
-    report = sub.add_parser("report", help="merge every finished lens into one ranked list")
+    ingest = sub.add_parser("ingest", help="normalise one Opus reviewer's reply, saved to its reply_file")
+    ingest.add_argument("job_dir")
+    ingest.add_argument("lens")
+    ingest.add_argument("--duration-s", type=float, help="the agent's run time, if its notification gave one")
+    ingest.add_argument("--tokens", type=int, help="the agent's token count, if its notification gave one")
+    ingest.set_defaults(func=cmd_ingest)
+
+    report = sub.add_parser("report", help="merge every reviewer's findings into ranked issues")
     report.add_argument("job_dir")
-    report.add_argument("--min-confidence", type=float, default=0.0)
+    report.add_argument("--min-confidence", type=float, default=0.0, help="ignored with --verdicts")
+    report.add_argument("--verdicts", metavar="FILE", help="Claude's verdicts; adds the reviewer scoreboard")
     report.set_defaults(func=cmd_report)
 
     cleanup = sub.add_parser("cleanup", help="remove the PR or range worktree")
@@ -864,7 +1214,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print(json.dumps({"error": f"interrupted by signal {exc.args[0]}; the agy job was stopped"}), file=sys.stderr)
         return 130
     print(json.dumps(payload, indent=2, ensure_ascii=False))
-    return 0 if args.command != "run" or payload.get("status") == "ok" else 2
+    return 0 if args.command not in ("run", "ingest") or payload.get("status") == "ok" else 2
 
 
 if __name__ == "__main__":
