@@ -69,6 +69,8 @@ MODELS = ";".join([
     "gemini-3.10-flash-high,Gemini 3.10 Flash (High)",
     "gemini-3.10-flash-low,Gemini 3.10 Flash (Low)",
     "gemini-3.10-pro-medium,Gemini 3.10 Pro (Medium)",
+    "gemini-4-argon-high,Gemini 4 Argon (High)",
+    "gemini-4-argon-xhigh,Gemini 4 Argon (Extra High)",
     "claude-opus-5-5-high,Claude Opus 5.5 (High)",
     "gpt-oss-120b-medium,GPT-OSS 120B (Medium)",
 ])
@@ -80,6 +82,10 @@ def finding(file: str, line: int, severity: str, title: str, confidence: float =
         "failure_scenario": "b == 0", "evidence": f"{file}:{line}", "suggested_fix": "guard",
         "confidence": confidence,
     }
+
+
+def fenced(findings: List[Dict[str, Any]], prose: str = "Reviewed the diff.") -> str:
+    return f"{prose}\n\n```json\n{json.dumps({'summary': 'checked', 'findings': findings}, indent=2)}\n```\n"
 
 
 def load_module() -> Any:
@@ -167,6 +173,11 @@ class Sandbox:
         except json.JSONDecodeError as exc:
             raise AssertionError(f"not JSON (exit {proc.returncode}): {proc.stdout!r} {proc.stderr!r}") from exc
 
+    def opus(self, job: str, lens: str, reply: str, *args: str) -> Tuple[int, Dict[str, Any]]:
+        """What the skill does when an Opus agent finishes: save its final message, then ingest it."""
+        (Path(job) / "out" / "opus" / f"{lens}.response.md").write_text(reply)
+        return self.cli("ingest", job, lens, *args)
+
     def calls(self) -> List[Dict[str, Any]]:
         if not self.log.exists():
             return []
@@ -196,8 +207,42 @@ class ScopeTest(unittest.TestCase):
         self.assertIn("+def mul(a, b):", patch)
         self.assertIn("+print('new content')", patch)
         self.assertNotIn("lockfileVersion", patch)
+        self.assertEqual(out["reviewers"], ["agy", "opus"])
         self.assertEqual(len(out["run_commands"]), 1)
         self.assertTrue(out["run_commands"][0].endswith(f"run {out['job_dir']} all"))
+        [task] = out["opus_tasks"]
+        self.assertEqual(
+            (task["subagent_type"], task["model"], task["effort"]), ("antigravity-agents:opus-reviewer", "opus", "high")
+        )
+        self.assertTrue(task["ingest_command"].endswith(f"ingest {out['job_dir']} all"))
+        brief_path = Path(out["job_dir"]) / "out" / "opus" / "all.prompt.md"
+        self.assertIn(str(brief_path), task["prompt"])
+        brief = brief_path.read_text()
+        self.assertIn(f"Repository: {self.box.repo}, checked out at the reviewed revision. Read it by absolute path", brief)
+        self.assertIn("```json fence", brief)
+        self.assertIn(str(SCHEMA), brief)
+        self.assertNotIn("structured output", brief)
+
+    def test_opus_only_review_never_calls_agy(self) -> None:
+        self.box.dirty()
+        code, out = self.box.cli("scope", "--reviewers", "opus", "--effort", "max", AGY_BIN=str(self.box.tmp / "no-agy"))
+        self.assertEqual(code, 0, out)
+        self.assertEqual((out["reviewers"], out["model"], out["effort"]), (["opus"], None, "max"))
+        self.assertEqual(out["run_commands"], [])
+        self.assertEqual(len(out["opus_tasks"]), 1)
+        self.assertEqual(self.box.calls(), [])
+        code, out = self.box.cli("run", out["job_dir"], "all")
+        self.assertEqual(code, 1)
+        self.assertIn("reviewers are opus, not agy", out["error"])
+
+    def test_agy_only_review_has_no_opus_tasks(self) -> None:
+        self.box.dirty()
+        code, out = self.box.cli("scope", "--reviewers", "agy")
+        self.assertEqual((code, out["opus_tasks"], len(out["run_commands"])), (0, [], 1), out)
+        self.assertFalse((Path(out["job_dir"]) / "out" / "opus").exists())
+        code, out = self.box.cli("scope", "--reviewers", "agy,gpt")
+        self.assertEqual(code, 1)
+        self.assertIn("unknown reviewer gpt", out["error"])
 
     def test_large_change_fans_out_to_four_lenses(self) -> None:
         (self.box.repo / "big.py").write_text("x = 1\n" * 200)
@@ -287,10 +332,14 @@ class ScopeTest(unittest.TestCase):
         self.assertEqual(code, 0, out)
         self.assertEqual((out["mode"], out["files"]), ("paths", ["app.py"]))
 
-    def test_effort_picks_a_gemini_that_offers_it(self) -> None:
+    def test_effort_picks_the_newest_flash_that_offers_it(self) -> None:
         self.box.dirty()
         code, out = self.box.cli("scope", "--effort", "medium")
-        self.assertEqual((code, out["model"], out["effort"]), (0, "gemini-3.10-pro", "medium"), out)
+        self.assertEqual((code, out["model"], out["effort"]), (0, "gemini-3.8-flash", "medium"), out)
+        code, out = self.box.cli("scope", "--effort", "xhigh")
+        self.assertEqual((code, out["model"]), (0, "gemini-4-argon"), out)
+        code, out = self.box.cli("scope", "--model", "gemini-4-argon")
+        self.assertEqual((code, out["model"], out["effort"]), (0, "gemini-4-argon", "high"), out)
         code, out = self.box.cli("scope", "--effort", "max")
         self.assertEqual(code, 1)
         self.assertIn("no Gemini model with max effort", out["error"])
@@ -319,7 +368,10 @@ class RunTest(unittest.TestCase):
         self.assertEqual(code, 0, out)
         self.assertEqual((out["status"], out["finding_count"], out["tree_changed"]), ("ok", 1, False))
         self.assertEqual(out["findings"][0]["severity"], "high")
-        self.assertEqual(out["findings"][0]["lens"], "all")
+        self.assertEqual(
+            {k: out["findings"][0][k] for k in ("lens", "reviewer", "ref")},
+            {"lens": "all", "reviewer": "agy", "ref": "agy/all#1"},
+        )
         self.assertNotIn("response", out)
         [call] = self.box.calls()
         argv = call["argv"]
@@ -338,6 +390,8 @@ class RunTest(unittest.TestCase):
         self.assertIn("Your lens is **all**", prompt)
         self.assertIn(str(Path(self.job) / "input" / "diff.patch"), prompt)
         self.assertIn("### security", prompt)
+        self.assertIn("It is your working directory.", prompt)
+        self.assertIn("through the structured output", prompt)
         self.assertNotIn("$", prompt.split("## Lens")[0])
 
     def test_timeout_then_resume_continues_the_same_conversation(self) -> None:
@@ -348,7 +402,7 @@ class RunTest(unittest.TestCase):
         argv = self.box.calls()[-1]["argv"]
         self.assertEqual(dict(zip(argv, argv[1:]))["--conversation"], "conv-42")
         self.assertIn("without starting over", dict(zip(argv, argv[1:]))["-p"])
-        self.assertTrue((Path(self.job) / "out" / "all.result.json.1").exists())
+        self.assertTrue((Path(self.job) / "out" / "agy" / "all.result.json.1").exists())
 
     def test_resume_without_an_earlier_run_is_an_error(self) -> None:
         code, out = self.box.cli("run", self.job, "security", "--resume")
@@ -379,6 +433,48 @@ class RunTest(unittest.TestCase):
         self.assertEqual(out["error"], "network")
 
 
+class IngestTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.box = Sandbox()
+        self.addCleanup(self.box.close)
+        self.box.dirty()
+        code, scope = self.box.cli("scope")
+        self.assertEqual(code, 0, scope)
+        self.job = scope["job_dir"]
+        self.out = Path(self.job) / "out" / "opus"
+
+    def test_fenced_json_after_prose_is_normalised(self) -> None:
+        quoted = finding("app.py", 2, "HIGH", "division by zero")
+        quoted["evidence"] = "app.py:2\n```py\nreturn a / b\n```"
+        code, out = self.box.opus(self.job, "all", fenced([quoted]), "--duration-s", "412.5", "--tokens", "9000")
+        self.assertEqual(code, 0, out)
+        self.assertEqual((out["status"], out["reviewer"], out["duration_s"], out["tokens"]), ("ok", "opus", 412.5, 9000))
+        [got] = out["findings"]
+        self.assertEqual((got["ref"], got["severity"], got["evidence"]), ("opus/all#1", "high", quoted["evidence"]))
+        self.assertEqual(out["warnings"], [])
+        self.assertNotIn("response", out)
+        self.assertFalse((self.out / "all.response.md").exists())
+        self.assertEqual(out["reply_file"], str(self.out / "all.response.md.1"))
+
+    def test_prose_reply_is_unstructured_and_a_retry_is_attempt_two(self) -> None:
+        code, out = self.box.opus(self.job, "all", "app.py:2 divides by zero")
+        self.assertEqual((code, out["status"], out["response"]), (2, "unstructured", "app.py:2 divides by zero"), out)
+        code, out = self.box.opus(self.job, "all", fenced([]))
+        self.assertEqual((code, out["status"], out["attempt"], out["finding_count"]), (0, "ok", 2, 0), out)
+        self.assertTrue((self.out / "all.result.json.1").exists())
+
+    def test_missing_fields_are_flagged(self) -> None:
+        reply = fenced([{"file": "app.py", "line": 2, "severity": "high", "title": "zero"}])
+        code, out = self.box.opus(self.job, "all", reply)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(out["warnings"], ["opus/all#1 lacks category, failure_scenario, evidence, suggested_fix, confidence"])
+
+    def test_ingest_needs_a_saved_reply(self) -> None:
+        code, out = self.box.cli("ingest", self.job, "all")
+        self.assertEqual(code, 1)
+        self.assertIn("no reply at", out["error"])
+
+
 class ReportTest(unittest.TestCase):
     def setUp(self) -> None:
         self.box = Sandbox()
@@ -388,22 +484,81 @@ class ReportTest(unittest.TestCase):
         self.assertEqual(code, 0, scope)
         self.job = scope["job_dir"]
 
-    def test_report_ranks_folds_twins_and_lists_missing_lenses(self) -> None:
-        self.box.cli("run", self.job, "correctness", STUB_FINDINGS=json.dumps([
+    def agy(self, lens: str, findings: List[Dict[str, Any]]) -> None:
+        code, out = self.box.cli("run", self.job, lens, STUB_FINDINGS=json.dumps(findings))
+        self.assertEqual(code, 0, out)
+
+    def opus(self, lens: str, findings: List[Dict[str, Any]]) -> None:
+        code, out = self.box.opus(self.job, lens, fenced(findings))
+        self.assertEqual(code, 0, out)
+
+    def verdicts(self, entries: Any) -> Tuple[int, Dict[str, Any]]:
+        path = Path(self.job) / "verdicts.json"
+        path.write_text(json.dumps(entries))
+        return self.box.cli("report", self.job, "--verdicts", str(path))
+
+    def test_report_groups_one_spot_across_reviewers_and_lists_missing_lenses(self) -> None:
+        self.agy("correctness", [
             finding("app.py", 2, "medium", "divide by zero"),
             finding("app.py", 40, "low", "naming", confidence=0.2),
-        ]))
-        self.box.cli("run", self.job, "security", STUB_FINDINGS=json.dumps([
-            finding("app.py", 3, "critical", "attacker-controlled divisor crashes worker"),
-        ]))
+        ])
+        self.agy("security", [finding("app.py", 3, "critical", "attacker-controlled divisor crashes worker")])
+        self.opus("correctness", [finding("app.py", 1, "high", "zero divisor"), finding("new.py", 1, "low", "print")])
         code, report = self.box.cli("report", self.job, "--min-confidence", "0.5")
         self.assertEqual(code, 0, report)
-        self.assertEqual(report["total"], 1)
-        [top] = report["findings"]
-        self.assertEqual((top["severity"], top["lens"]), ("critical", "security"))
-        self.assertEqual(top["also_reported_by"], [{"lens": "correctness", "title": "divide by zero"}])
-        self.assertEqual(report["lenses"]["reliability"], {"status": "not-run"})
+        self.assertEqual((report["verified"], report["total"]), (False, 2))
+        top, other = report["issues"]
+        self.assertEqual((top["id"], top["severity"], top["found_by"]), ("I1", "critical", ["agy", "opus"]))
+        self.assertEqual(
+            [r["ref"] for r in top["refs"]], ["agy/security#1", "opus/correctness#1", "agy/correctness#1"]
+        )
+        self.assertEqual((other["file"], other["found_by"]), ("new.py", ["opus"]))
+        self.assertEqual(report["found_by"], {"agy+opus": 1, "opus": 1})
+        self.assertEqual(report["reviewers"]["agy"]["lenses"]["reliability"], {"status": "not-run"})
+        self.assertEqual(report["reviewers"]["opus"]["lenses"]["security"], {"status": "not-run"})
+        self.assertEqual(report["reviewers"]["agy"]["model"], "gemini-3.10-flash")
         self.assertTrue((Path(self.job) / "report.json").exists())
+
+    def test_verdicts_score_each_reviewer(self) -> None:
+        self.agy("correctness", [finding("app.py", 2, "high", "divide by zero"), finding("app.py", 30, "medium", "bogus")])
+        self.opus("correctness", [
+            finding("app.py", 2, "high", "zero divisor"),
+            finding("new.py", 1, "medium", "only opus saw it"),
+            finding("app.py", 50, "low", "never checked"),
+        ])
+        code, report = self.verdicts([
+            {"refs": ["agy/correctness#1", "opus/correctness#1"], "verdict": "confirmed", "reason": "b=0 reaches /"},
+            {"refs": ["agy/correctness#2"], "verdict": "rejected", "reason": "guarded on line 29"},
+            {"refs": ["opus/correctness#2"], "verdict": "plausible", "severity": "low"},
+        ])
+        self.assertEqual(code, 0, report)
+        self.assertEqual((report["verified"], report["valid"], report["rejected"]), (True, 2, 1))
+        self.assertEqual(
+            [(i["id"], i["verdict"], i["severity"], i["found_by"]) for i in report["issues"]],
+            [("I1", "confirmed", "high", ["agy", "opus"]), ("I2", "plausible", "low", ["opus"]),
+             ("I3", "rejected", "medium", ["agy"])],
+        )
+        self.assertEqual(report["issues"][0]["reason"], "b=0 reaches /")
+        self.assertEqual(report["unverified_refs"], ["opus/correctness#3"])
+        self.assertEqual(report["found_by"], {"agy+opus": 1, "opus": 1})
+        board = report["scoreboard"]
+        pick = ("findings", "confirmed", "plausible", "rejected", "unverified", "precision", "valid_issues",
+                "unique_valid", "recall", "missed")
+        self.assertEqual({k: board["agy"][k] for k in pick}, dict(zip(pick, (2, 1, 0, 1, 0, 0.5, 1, 0, 0.5, ["I2"]))))
+        self.assertEqual({k: board["opus"][k] for k in pick}, dict(zip(pick, (3, 1, 1, 0, 1, 1.0, 2, 1, 1.0, []))))
+        self.assertEqual((board["agy"]["severity_changed"], board["opus"]["severity_changed"]), (0, 1))
+        self.assertEqual(board["agy"]["lenses_failed"], ["security", "reliability"])
+        self.assertTrue((Path(self.job) / "report.verified.json").exists())
+
+    def test_bad_verdicts_are_refused(self) -> None:
+        self.agy("correctness", [finding("app.py", 2, "high", "divide by zero")])
+        code, out = self.verdicts([
+            {"refs": ["agy/correctness#1"], "verdict": "confirmed"},
+            {"refs": ["agy/correctness#1", "opus/security#9"], "verdict": "maybe"},
+        ])
+        self.assertEqual(code, 1)
+        for part in ("entry 2: verdict must be one of", "unknown ref opus/security#9", "already in entry 1"):
+            self.assertIn(part, out["error"])
 
 
 class RankTest(unittest.TestCase):

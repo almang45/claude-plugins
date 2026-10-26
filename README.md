@@ -14,7 +14,7 @@ its README.
 | [swarm](plugins/swarm) | 0.1.0 | mod | `/swarm`: a live map of subagents and agent teams | [OneWave AI](https://github.com/OneWave-AI/claude-code-mods/tree/main/swarm) |
 | [session-wrapped](plugins/session-wrapped) | 0.1.0-alm.1 | mod | `/wrapped`: an animated session recap and a PNG card | [OneWave AI](https://github.com/OneWave-AI/claude-code-mods/tree/main/session-wrapped) |
 | [skins](plugins/skins) | 0.1.1-alm.3 | mod | Themed tool rows, cards and spinner that keep your `spinnerVerbs` | [hellosverre](https://github.com/hellosverre/claude-skins) |
-| [antigravity-agents](plugins/antigravity-agents) | 0.1.0-alm.3 | skills | Delegates audits and research to `agy` sub-agents; `/antigravity-agents:review` runs a parallel Gemini code review that Claude verifies | [markfulton](https://github.com/markfulton/claude-antigravity-agents) |
+| [antigravity-agents](plugins/antigravity-agents) | 0.1.0-alm.4 | skills | Delegates audits and research to `agy` sub-agents; `/antigravity-agents:review` runs a parallel Gemini code review beside Claude Opus, verifies both and compares them | [markfulton](https://github.com/markfulton/claude-antigravity-agents) |
 
 ## Install
 
@@ -57,4 +57,4 @@ conventions.
 
 spinner, swarm, session-wrapped, skins and antigravity-agents are MIT, under their
 authors' copyright, with the license in each folder. antigravity-agents' review skill
-was added in this repo. chime and tabcolor carry no license file.
+and opus-reviewer agent were added in this repo. chime and tabcolor carry no license file.

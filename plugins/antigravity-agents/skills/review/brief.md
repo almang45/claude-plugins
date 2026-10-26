@@ -7,9 +7,10 @@ $change
 
 ## Rules
 
-1. Read-only. Open and search files, and use read-only git commands (diff, log, show, blame,
-   grep). Do not create, modify or delete any file. Do not run the project's code, tests,
-   builds or scripts, and do not install anything: other reviewers share this checkout.
+1. Read-only. Open and search files, and if you have a shell, use read-only git commands (diff,
+   log, show, blame, grep). Do not create, modify or delete any file. Do not run the project's
+   code, tests, builds or scripts, and do not install anything: other reviewers share this
+   checkout.
 2. $read_rule Then read whatever else you need to confirm a suspicion: callers, callees, types,
    configuration and tests. Report nothing you have not traced through the code.
 3. $scope_rule
@@ -34,5 +35,4 @@ $lens_brief
 
 ## Output
 
-Return the result through the structured output: `summary`, one or two sentences on this lens,
-and `findings`, which may be empty.
+$output_rule
