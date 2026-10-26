@@ -452,6 +452,7 @@ class IngestTest(unittest.TestCase):
         [got] = out["findings"]
         self.assertEqual((got["ref"], got["severity"], got["evidence"]), ("opus/all#1", "high", quoted["evidence"]))
         self.assertEqual(out["warnings"], [])
+        self.assertFalse(out["tree_changed"])
         self.assertNotIn("response", out)
         self.assertFalse((self.out / "all.response.md").exists())
         self.assertEqual(out["reply_file"], str(self.out / "all.response.md.1"))
@@ -468,6 +469,27 @@ class IngestTest(unittest.TestCase):
         code, out = self.box.opus(self.job, "all", reply)
         self.assertEqual(code, 0, out)
         self.assertEqual(out["warnings"], ["opus/all#1 lacks category, failure_scenario, evidence, suggested_fix, confidence"])
+
+    def test_bare_json_after_prose_with_braces_is_found(self) -> None:
+        result = {"summary": "checked", "findings": [finding("app.py", 2, "high", "division by zero")]}
+        reply = f'Traced div() with {{b: 0}} and {{"b": 0}}; the result:\n\n{json.dumps(result)}\n'
+        code, out = self.box.opus(self.job, "all", reply)
+        self.assertEqual((code, out["status"], out["finding_count"]), (0, "ok", 1), out)
+
+    def test_a_later_fence_that_is_not_the_result_is_skipped(self) -> None:
+        reply = fenced([finding("app.py", 2, "high", "division by zero")]) + '\nIt reads:\n\n```json\n{"divisor": 0}\n```\n'
+        code, out = self.box.opus(self.job, "all", reply)
+        self.assertEqual((code, out["status"], out["finding_count"]), (0, "ok", 1), out)
+
+    def test_empty_reply_is_an_error(self) -> None:
+        code, out = self.box.opus(self.job, "all", "\n")
+        self.assertEqual((code, out["status"], out["finding_count"]), (2, "error", 0), out)
+
+    def test_an_edit_in_the_review_root_is_reported(self) -> None:
+        (self.box.repo / "app.py").write_text("def div(a, b):\n    return a\n")
+        code, out = self.box.opus(self.job, "all", fenced([]))
+        self.assertEqual(code, 0, out)
+        self.assertTrue(out["tree_changed"])
 
     def test_ingest_needs_a_saved_reply(self) -> None:
         code, out = self.box.cli("ingest", self.job, "all")
@@ -549,6 +571,39 @@ class ReportTest(unittest.TestCase):
         self.assertEqual((board["agy"]["severity_changed"], board["opus"]["severity_changed"]), (0, 1))
         self.assertEqual(board["agy"]["lenses_failed"], ["security", "reliability"])
         self.assertTrue((Path(self.job) / "report.verified.json").exists())
+
+    def test_only_a_severity_the_verdict_sets_counts_as_a_correction(self) -> None:
+        self.agy("correctness", [finding("app.py", 2, "high", "divide by zero")])
+        self.opus("correctness", [finding("app.py", 2, "medium", "zero divisor")])
+        joint = {"refs": ["agy/correctness#1", "opus/correctness#1"], "verdict": "confirmed"}
+        code, report = self.verdicts([joint])
+        self.assertEqual(code, 0, report)
+        board = report["scoreboard"]
+        self.assertEqual(
+            (report["issues"][0]["severity"], board["agy"]["severity_changed"], board["opus"]["severity_changed"]),
+            ("high", 0, 0),
+        )
+        code, report = self.verdicts([{**joint, "severity": "medium"}])
+        self.assertEqual(code, 0, report)
+        board = report["scoreboard"]
+        self.assertEqual((board["agy"]["severity_changed"], board["opus"]["severity_changed"]), (1, 0))
+
+    def test_a_lens_one_reviewer_did_not_finish_counts_neither_way(self) -> None:
+        self.agy("correctness", [finding("app.py", 2, "high", "divide by zero")])
+        self.agy("security", [finding("new.py", 1, "medium", "prints user input")])
+        self.opus("correctness", [finding("app.py", 2, "high", "zero divisor")])
+        code, out = self.box.opus(self.job, "security", "Ran out of time before the JSON.")
+        self.assertEqual((code, out["status"]), (2, "unstructured"), out)
+        code, report = self.verdicts([
+            {"refs": ["agy/correctness#1", "opus/correctness#1"], "verdict": "confirmed"},
+            {"refs": ["agy/security#1"], "verdict": "confirmed"},
+        ])
+        self.assertEqual(code, 0, report)
+        board = report["scoreboard"]
+        pick = ("valid_issues", "unique_valid", "recall", "missed", "not_covered")
+        self.assertEqual({k: board["agy"][k] for k in pick}, dict(zip(pick, (2, 0, 1.0, [], []))))
+        self.assertEqual({k: board["opus"][k] for k in pick}, dict(zip(pick, (1, 0, 1.0, [], ["I2"]))))
+        self.assertEqual(board["opus"]["lenses_failed"], ["security", "reliability"])
 
     def test_bad_verdicts_are_refused(self) -> None:
         self.agy("correctness", [finding("app.py", 2, "high", "divide by zero")])

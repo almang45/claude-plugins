@@ -707,19 +707,28 @@ def parse_agy_json(raw: bytes) -> Dict[str, Any]:
     return {}
 
 
+def result_at(decoder: json.JSONDecoder, text: str, index: int) -> Optional[Dict[str, Any]]:
+    if index < 0:
+        return None
+    try:
+        data, _ = decoder.raw_decode(text, index)
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, dict) and isinstance(data.get("findings"), list) else None
+
+
 def parse_reply(text: str) -> Optional[Dict[str, Any]]:
-    """The result object in an agent's reply: the last ```json fence that holds one, else the first object."""
+    """The result object in an agent's reply: the last ```json fence that holds one, else the first bare one."""
     decoder = json.JSONDecoder()
     # raw_decode, not a fence regex: a finding's evidence can itself quote a ``` block.
-    for start in [m.end() for m in re.finditer(r"```json", text)][::-1] + [0]:
-        brace = text.find("{", start)
-        if brace < 0:
-            continue
-        try:
-            data, _ = decoder.raw_decode(text, brace)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(data, dict) and isinstance(data.get("findings"), list):
+    for start in [m.end() for m in re.finditer(r"```json", text)][::-1]:
+        data = result_at(decoder, text, text.find("{", start))
+        if data is not None:
+            return data
+    # Every brace, not just the first: the prose before a bare object can hold braces of its own.
+    for brace in re.finditer(r"\{", text):
+        data = result_at(decoder, text, brace.start())
+        if data is not None:
             return data
     return None
 
@@ -938,12 +947,15 @@ def make_issue(
     if verdict:
         issue["verdict"] = verdict
     issue["severity"] = severity or lead["severity"]
+    if verdict:
+        issue["severity_set_by_verdict"] = severity is not None
     issue.update(
         {key: lead.get(key) for key in ("file", "line", "category", "title", "failure_scenario", "evidence", "suggested_fix")}
     )
     if verdict:
         issue["reason"] = reason or ""
     issue["found_by"] = sorted({m["reviewer"] for m in members})
+    issue["lenses"] = sorted({m["lens"] for m in members})
     issue["refs"] = [{key: m.get(key) for key in ("ref", "severity", "line", "title", "confidence")} for m in members]
     return issue
 
@@ -1000,34 +1012,55 @@ def verified_issues(entries: List[Dict[str, Any]], by_ref: Dict[str, Dict[str, A
     return issues
 
 
+def finished_lenses(info: Dict[str, Any]) -> List[str]:
+    return [name for name, lens in info["lenses"].items() if lens.get("status") == "ok"]
+
+
+def covers(finished: Sequence[str], issue: Dict[str, Any]) -> bool:
+    """Whether a reviewer finished a lens that could have found the issue; lens briefs keep each job in its lane."""
+    return ALL_LENS in finished or any(lens in finished for lens in issue["lenses"])
+
+
+def severity_corrected(finding: Dict[str, Any], issue: Dict[str, Any]) -> bool:
+    # Without a severity in the verdict the issue inherits its most severe report, which corrects nobody.
+    return issue["severity_set_by_verdict"] and finding["severity"] != issue["severity"]
+
+
 def scoreboard(
     findings: List[Dict[str, Any]], issues: List[Dict[str, Any]], reviewers: Dict[str, Any]
 ) -> Dict[str, Any]:
-    """Per reviewer: how many of its findings held up, and its share of every valid issue any reviewer found."""
-    verdict_of = {ref["ref"]: issue["verdict"] for issue in issues for ref in issue["refs"]}
-    severity_of = {ref["ref"]: issue["severity"] for issue in issues for ref in issue["refs"]}
+    """Per reviewer: how many of its findings held up, and its share of the valid issues it had a chance to find.
+
+    An issue that sits in a lens a reviewer didn't finish is neither its miss nor the other side's unique find.
+    """
+    issue_of = {ref["ref"]: issue for issue in issues for ref in issue["refs"]}
     valid = [i for i in issues if i["verdict"] in VALID_VERDICTS]
+    finished = {reviewer: finished_lenses(info) for reviewer, info in reviewers.items()}
     board: Dict[str, Any] = {}
     for reviewer, info in reviewers.items():
         own = [f for f in findings if f["reviewer"] == reviewer]
-        counts = {v: sum(1 for f in own if verdict_of.get(f["ref"]) == v) for v in VERDICTS}
+        own_valid = [f for f in own if f["ref"] in issue_of and issue_of[f["ref"]]["verdict"] in VALID_VERDICTS]
+        counts = {v: sum(1 for f in own if f["ref"] in issue_of and issue_of[f["ref"]]["verdict"] == v) for v in VERDICTS}
         verified = sum(counts.values())
-        found = [i for i in valid if reviewer in i["found_by"]]
+        reachable = [i for i in valid if covers(finished[reviewer], i)]
+        found = [i for i in reachable if reviewer in i["found_by"]]
+        others = [r for r in reviewers if r != reviewer]
         durations = [lens["duration_s"] for lens in info["lenses"].values() if lens.get("duration_s") is not None]
         board[reviewer] = {
             "findings": len(own),
             **counts,
             "unverified": len(own) - verified,
             "precision": round((counts["confirmed"] + counts["plausible"]) / verified, 2) if verified else None,
-            "severity_changed": sum(
-                1 for f in own if verdict_of.get(f["ref"]) in VALID_VERDICTS and f["severity"] != severity_of[f["ref"]]
-            ),
+            "severity_changed": sum(1 for f in own_valid if severity_corrected(f, issue_of[f["ref"]])),
             "valid_issues": len(found),
-            "unique_valid": sum(1 for i in found if i["found_by"] == [reviewer]),
-            "recall": round(len(found) / len(valid), 2) if valid else None,
-            "missed": [i["id"] for i in valid if reviewer not in i["found_by"]],
+            "unique_valid": sum(
+                1 for i in found if i["found_by"] == [reviewer] and all(covers(finished[r], i) for r in others)
+            ),
+            "recall": round(len(found) / len(reachable), 2) if reachable else None,
+            "missed": [i["id"] for i in reachable if reviewer not in i["found_by"]],
+            "not_covered": [i["id"] for i in valid if not covers(finished[reviewer], i)],
             "valid_by_severity": {s: sum(1 for i in found if i["severity"] == s) for s in SEVERITY_RANK},
-            "lenses_failed": [name for name, lens in info["lenses"].items() if lens.get("status") != "ok"],
+            "lenses_failed": [name for name in info["lenses"] if name not in finished[reviewer]],
             "slowest_lens_s": max(durations) if durations else None,
         }
     return board

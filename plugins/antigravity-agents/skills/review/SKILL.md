@@ -56,9 +56,12 @@ Start every job in the same message:
 
 - Each `run_commands` entry as its own background Bash call (`run_in_background: true`).
 - Each `opus_tasks` entry as a background Agent call, with its `subagent_type`, `model`,
-  `effort`, `description` and `prompt` exactly as given. If that agent type isn't available,
-  use `general-purpose` with the same model and effort, and start the prompt with "Read-only:
-  never edit, write or run anything."
+  `effort`, `description` and `prompt` exactly as given.
+
+If the `antigravity-agents:opus-reviewer` agent type isn't available, which happens when the
+plugin was updated without `/reload-plugins` or a restart, never substitute another agent type.
+Every other type can run commands, and a PR can carry instructions aimed at its reviewer. Tell
+the user to reload, finish the review with agy alone, and skip the comparison.
 
 Don't poll and don't sleep: each call notifies you when it finishes. Never pass one
 reviewer's findings to the other; the comparison needs independent reviews.
@@ -83,7 +86,14 @@ agent's completion notice reports them. It exits 0 when `status` is `ok`, or 2 o
 - `unstructured`: the reply held no parsable JSON. If you can message the agent, ask it once
   for only the JSON result, save that and ingest again. Otherwise treat it like an agy
   `unstructured` lens.
+- `error`, or the agent itself failed (an API, rate-limit or context error) and left no
+  reply: launch the same `opus_tasks` entry once more, since its brief is unchanged, then save
+  and ingest its reply. If that fails too, report the lens as failed.
 - `warnings`: findings that left out schema fields. Read them with that in mind.
+
+An Opus agent gets the scope's `timeout_min`, like an agy job. If one is still running that
+long after you launched it, stop it if you can, report its lens as failed and go on. Don't
+hold the report for it.
 
 **Either reviewer**, `tree_changed: true`: a job, or someone, changed files in the review
 root. Run `git status` and `git diff` there. Show the user any change a job made and ask before
@@ -126,9 +136,11 @@ Once every job has finished:
 3. Run `REVIEW report <job_dir> --verdicts <job_dir>/verdicts.json`. It refuses unknown or
    repeated refs, so fix the file and rerun if it does. Its `scoreboard` has, for each
    reviewer, findings, confirmed, plausible and rejected counts; `precision`, the share of its
-   verified findings that held up; `severity_changed`, its valid findings whose severity you
-   corrected; `unique_valid`, the valid issues only it found; `recall`, its share of every
-   valid issue either reviewer found; `missed`; and `slowest_lens_s`.
+   verified findings that held up; `severity_changed`, its valid findings whose severity your
+   verdict set differently; `unique_valid`, the valid issues only it found, in lenses both
+   sides finished; `recall`, its share of the valid issues in the lenses it finished;
+   `missed`; `not_covered`, valid issues in lenses it didn't finish, which count neither way;
+   and `slowest_lens_s`.
 
 Then answer:
 
@@ -140,9 +152,9 @@ Then answer:
 3. The comparison: a table with one column per reviewer and rows for findings, confirmed,
    plausible, rejected, precision, severity corrected, unique valid issues, recall and slowest
    lens. Then two or three lines on what it shows: which issues only one side caught and how
-   severe they were, and what the rejected findings had in common. One change is a small
-   sample, so don't generalize past it. With a single reviewer, skip the table and give its
-   precision.
+   severe they were, and what the rejected findings had in common. Name any lens that failed
+   and the `not_covered` issues it leaves out of the comparison. One change is a small sample,
+   so don't generalize past it. With a single reviewer, skip the table and give its precision.
 4. How many findings you rejected and why, in a line or two. Lenses that failed, and agy's
    model and effort.
 
