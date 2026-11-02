@@ -1,0 +1,7 @@
+{
+  "name": "opus-start",
+  "version": "0.1.0",
+  "description": "Runs /model opus when an interactive session starts on Sonnet, for accounts whose organization forces Sonnet as the default.",
+  "author": { "name": "almang45" },
+  "types": "./types/index.d.ts"
+}
