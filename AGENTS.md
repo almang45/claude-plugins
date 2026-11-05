@@ -13,7 +13,7 @@ Run from the repo root.
 ```bash
 claude plugin validate --strict .            # marketplace manifest; warnings fail too
 claude plugin validate --strict plugins/<name>
-claude plugin test plugins/<name>            # TS mods: spinner, swarm, session-wrapped, skins
+claude plugin test plugins/<name>            # TS mods: spinner, swarm, session-wrapped, skins, opus-start
 ./plugins/chime/test.sh                      # stubs afplay/say, never makes a sound
 ./plugins/tabcolor/test.sh                   # writes to a temp file, never repaints a tab
 python3 -I plugins/session-wrapped/tests/test_usage.py
@@ -25,7 +25,7 @@ claude --plugin-dir ./plugins/<name>         # load the working copy for one ses
 
 - **Command hooks** (chime, tabcolor): `hooks/hooks.json` runs `hooks/<name>.sh <state>`
   with `busy` / `idle` / `attention` (tabcolor also `reset`).
-- **TS mods** (spinner, swarm, session-wrapped, skins): `hooks/hooks.json` is
+- **TS mods** (spinner, swarm, session-wrapped, skins, opus-start): `hooks/hooks.json` is
   `{"modules": ["./register.tsx"]}`. Tests in `tests/*.test.ts(x)` import `claude-code/testing`.
   There is no package.json; `claude plugin test` is the runner.
 - **Skills** (antigravity-agents): `skills/<skill>/SKILL.md`, two skills in one plugin.

@@ -40,6 +40,11 @@
       "name": "antigravity-agents",
       "description": "Fork of markfulton's antigravity-agents skill: Claude delegates reviews, audits, research and refactors to Google Antigravity CLI (agy) sub-agents in the background, then verifies what comes back. Adds /antigravity-agents:review, a code review by parallel Gemini lenses at high effort, run beside Claude Opus reviewers and scored against them.",
       "source": "./plugins/antigravity-agents"
+    },
+    {
+      "name": "opus-start",
+      "description": "Runs /model opus when an interactive session starts on Sonnet, for accounts whose organization forces Sonnet as the default.",
+      "source": "./plugins/opus-start"
     }
   ]
 }
