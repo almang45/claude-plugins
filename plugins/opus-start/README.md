@@ -10,5 +10,7 @@ runs `/model opus`, the same command you would type.
   override the organization's policy for every reader.
 - Other models are left alone (`claude --model haiku`). An explicit `--model sonnet` looks
   the same as the forced default and is switched too; run `/model sonnet` to go back.
+- The switch is queued before the session takes its first prompt, so `claude "<prompt>"`
+  runs that prompt on Opus too.
 - `claude -p` and SDK runs are not touched.
 - It runs once per session, so a plugin reload does not undo a manual `/model`.

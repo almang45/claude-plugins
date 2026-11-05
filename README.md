@@ -2,9 +2,9 @@
 
 Claude Code plugins: session state you can hear and see from another tab, animated and
 themed transcripts, live views of subagents and a session recap, and delegation and code
-review through Google Antigravity sub-agents. chime and tabcolor are the owner's own; the
-rest are forks or vendored copies of other authors' mods, each with its changes listed in
-its README.
+review through Google Antigravity sub-agents, and an Opus start for org-forced Sonnet
+defaults. chime, tabcolor and opus-start are the owner's own; the rest are forks or vendored
+copies of other authors' mods, each with its changes listed in its README.
 
 | Plugin | Version | Kind | What it does | Upstream |
 |---|---|---|---|---|
@@ -32,7 +32,7 @@ claude plugin update <plugin>@alm-plugins     # then restart the session
 ```
 
 chime and tabcolor are macOS-only. swarm, session-wrapped and skins need Claude Code
-2.1.287 or later. antigravity-agents needs a signed-in `agy`, and its review skill
+2.1.287 or later; opus-start is tested on 2.1.316. antigravity-agents needs a signed-in `agy`, and its review skill
 also needs `python3` 3.9 or later.
 
 ## Develop
@@ -43,7 +43,7 @@ Run from the repo root:
 claude --plugin-dir ./plugins/<plugin>       # load the working copy for one session
 claude plugin validate .                     # marketplace manifest
 claude plugin validate plugins/<plugin>
-claude plugin test plugins/<plugin>          # spinner, swarm, session-wrapped, skins
+claude plugin test plugins/<plugin>          # spinner, swarm, session-wrapped, skins, opus-start
 ./plugins/chime/test.sh
 ./plugins/tabcolor/test.sh
 python3 -I plugins/session-wrapped/tests/test_usage.py

@@ -7,24 +7,33 @@ export const shouldSwitch = (model: string, isInteractive: boolean): boolean =>
   isInteractive && /sonnet/i.test(model)
 
 export const register: Register = on => {
-  on('session.start', ($, e, next) => {
-    // Not awaited: $.command.run waits for an idle session, and session.start holds the first prompt.
-    void (async () => {
-      try {
-        // A reload runs session.start again; it must not undo a later manual /model.
-        const { value: wasApplied } = await $.state.get(isApplied)
-        if (wasApplied) return
+  on('session.start', async ($, e, next) => {
+    const toast = (text: string) => $.ui.toast(`opus-start: ${text}`)
+
+    try {
+      // A reload runs session.start again; it must not undo a later manual /model.
+      const { value: wasApplied } = await $.state.get(isApplied)
+
+      if (!wasApplied) {
         await $.state.set(isApplied, true)
 
-        if (!shouldSwitch(await $.session.model(), e.isInteractive)) return
-        await $.command.run({ command: 'model', args: 'opus' })
-
-        const model = await $.session.model()
-        if (!/opus/i.test(model)) $.ui.toast(`opus-start: still on ${model}`)
-      } catch (error) {
-        $.ui.toast(`opus-start: /model opus failed: ${String(error)}`)
+        if (shouldSwitch(await $.session.model(), e.isInteractive)) {
+          // Called before next(e) so it is queued ahead of an initial prompt; not awaited,
+          // since it runs once the session is idle and this hook holds the session back.
+          void (async () => {
+            try {
+              await $.command.run({ command: 'model', args: 'opus' })
+              const model = await $.session.model()
+              if (!/opus/i.test(model)) toast(`still on ${model}`)
+            } catch (error) {
+              toast(`/model opus failed: ${String(error)}`)
+            }
+          })()
+        }
       }
-    })()
+    } catch (error) {
+      toast(`could not check the model: ${String(error)}`)
+    }
 
     return next(e)
   })
